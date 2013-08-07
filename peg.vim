@@ -51,6 +51,7 @@ endf
 " the various parse functions for every element of a PEG grammar
 
 "Returns: the matched string or Fail
+"XXX \/ durch / ersetzen
 fu! s:parse_regexp(regexp)
 	if g:debug | call s:print_state('regexp', a:regexp) | endif
 	let npos = matchend(g:string, '^'.a:regexp, g:pos)
@@ -252,29 +253,113 @@ let g:string = "|hm|\n|--|\n| blabla | soso | lala │ naja |\n|b|d|"
 echom ">>> ".string(s:parse(table))
 
 
-"the Syntax for a grammar as I want it someday
+"the Syntax for a grammar in a nicer syntax
+"<bla, blubb> is equivalent to "bla (blubb bla)+"
+"
 "let bar = "remove(/[|│]/)"
 "let cell = "strip(/[a-zA-Z0-9 ]\+/)"
 "let table_line = "< bar, tag('td', cell) >"
 "let table_header_line = "< bar, tag('th', cell) >"
 "let table_div = "/|[-|]\+|/"
-"let table_header = "tag('tr', table_header_line) + remove(/\n/ + table_div + /\n/)"
+"let table_header = "tag('tr', table_header_line)  remove(/\n/ + table_div + /\n/)"
 "let table_block = "< tag('tr', table_line), remove(/\n/) >"
 "let table = "tag('table', table_header? + table_block + /$/)"
 
 
 
-"let g:pos = 0
-"let g:string = "bla"
-"let ein = ['regexp', 'bla', [g:Strip]]
-"let ein = ['regexp', 'bla', [g:Tag, 'so']]
-"let ein = ['sequence', [['regexp', 'bl', [g:Strip]],['regexp','a']], [g:Join, '+']]
-"let ein = ['sequence', [['regexp','bl'],['nonterminal','beispiel']]]
-"let beispiel = ['regexp', 'a', [g:Strip]]
-"let ein = ['choice', [['regexp','blaf'], ['regexp','bla']], [g:Tag, 'la']]
-"let ein = ['sequence', [['optional', ['regexp','l']], ['regexp','bla']]]
-"let ein = ['sequence', [['zeroormore', ['regexp','r']], ['regexp','bla']]]
-"let ein = ['sequence', [['oneormore', ['regexp','b'], [g:Concat]], ['regexp','la']], [g:Concat]]
-"let ein = ['and', ['regexp','bl']]
-"let ein = ['not', ['regexp','blö']]
-"echom ">>> ".string(s:parse(ein))
+
+finish
+
+" ------------------------------------------------
+"  the following defines the grammar for the grammar
+"  so the user can specify his grammar in a nice syntax (as shown directly above)
+"  and peggi uses itself to produce a grammar with which it can work (like the current table grammar above)
+
+fu! s:TrLiteral(string)
+	let str = s:strip(a:string)
+	let str = str[1:-2]
+	let str = escape(str, '.*[]\^$')
+	let str = '\s*'.str.'\s*'
+	return ['regexp', str]
+endf
+let g:TrLiteral = function("s:TrLiteral")
+
+fu! s:TrRegexp(string)
+	let str = s:strip(a:string)
+	let str = str[1:-2]
+	let str = '\s*'.str.'\s*'
+	return ['regexp', str]
+endf
+let g:TrRegexp = function("s:TrRegexp")
+
+fu! s:TrIdent(string)
+	let str = s:strip(a:string)
+	return ['nonterminal', str]
+endf
+let g:TrIdent = function("s:TrIdent")
+
+fu! s:TrSuffix(list)
+	let suffix = s:strip(a:list[1])
+	let thing = a:list[0]
+	if suffix == '?' | return ['optional', thing] | endif
+	if suffix == '+' | return ['oneormore', thing] | endif
+	if suffix == '*' | return ['zeroormore', thing] | endif
+	return thing
+endf
+let g:TrSuffix = function("s:TrSuffix")
+
+fu! s:TrPrefix(list)
+	let prefix = s:strip(a:list[0])
+	let thing = a:list[1]
+	if prefix == '&' | return ['and', thing] | endif
+	if prefix == '!' | return ['not', thing] | endif
+	return thing
+endf
+let g:TrPrefix = function("s:TrPrefix")
+
+fu! s:TrSequence(list)
+	if len(a:list) == 1
+		return a:list[0]
+	endif
+	return ['sequence', a:list]
+endf
+let g:TrSequence = function("s:TrSequence")
+
+fu! s:TrChoice(list)
+	if a:list[1] == []
+		return a:list[0]
+	endif
+	let trseq = [a:list[0]]
+	for seq in a:list[1]
+		call add(trseq, seq[1])
+	endfor
+	return ['choice', trseq]
+endf
+let g:TrChoice = function("s:TrChoice")
+
+fu! s:TakeFirst(list)
+	return a:list[0]
+endf
+let g:TakeFirst = function("s:TakeFirst")
+
+fu! s:TakeSecond(list)
+	return a:list[1]
+endf
+let g:TakeSecond = function("s:TakeSecond")
+
+let pegdefinition = ['sequence', [['nonterminal','pegexpression'], ['regexp','$']], [g:TakeFirst]]
+let pegexpression = ['sequence', [['nonterminal','pegsequence'], ['zeroormore',['sequence',[['regexp','\s*|\s*'], ['nonterminal','pegsequence']]]]], [g:TrChoice]]
+let pegsequence = ['zeroormore', ['nonterminal', 'pegprefix'], [g:TrSequence]] " nicht eher oneormore? und , dazwischen?
+let pegprefix = ['sequence', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], [g:TrPrefix]]
+let pegsuffix = ['sequence', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*']]]]], [g:TrSuffix]]
+let pegprimary = ['choice',[['nonterminal','pegidentifier'], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], [g:TakeSecond]], ['nonterminal','pegregexp'], ['nonterminal','pegliteral']]]
+let pegidentifier = ['regexp', '\s*[a-zA-Z_][a-zA-Z0-9_]*\s*', [g:TrIdent]]
+let pegregexp = ['regexp', '\s*/\%(\\.\|[^/]\)*/\s*', [g:TrRegexp]]
+let pegliteral = ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', [g:TrLiteral]]
+
+let g:string = 'asd wef /sdf/ "fw" | bla'
+let g:string = '!/df_bla/?"so!*+so"*|   (hm |!/bla d/)'
+let g:string = '!/adf/ + sdf | (ahm | jo)'
+let g:string = 'adf | (ahm | jo)'
+echom ">>>".string(s:parse(pegdefinition))
+
