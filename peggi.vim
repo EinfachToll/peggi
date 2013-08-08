@@ -4,7 +4,7 @@ let s:concat_seqs = 1
 "  the following defines the raw grammar for the nice grammar
 
 fu! s:TrLiteral(string)
-	let str = g:strip(a:string)
+	let str = s:strip(a:string)
 	let str = str[1:-2]
 	let str = escape(str, '.*[]\^$')
 	let str = '\s*'.str.'\s*'
@@ -12,19 +12,19 @@ fu! s:TrLiteral(string)
 endf
 
 fu! s:TrRegexp(string)
-	let str = g:strip(a:string)
+	let str = s:strip(a:string)
 	let str = str[1:-2]
 	let str = '\s*'.str
 	return ['regexp', str]
 endf
 
 fu! s:TrIdent(string)
-	let str = g:strip(a:string)
+	let str = s:strip(a:string)
 	return ['nonterminal', str]
 endf
 
 fu! s:TrSuffix(list)
-	let suffix = g:strip(a:list[1])
+	let suffix = s:strip(a:list[1])
 	let thing = a:list[0]
 	if suffix == '?' | return ['optional', thing] | endif
 	if suffix == '+' | return ['oneormore', thing] | endif
@@ -33,7 +33,7 @@ fu! s:TrSuffix(list)
 endf
 
 fu! s:TrPrefix(list)
-	let prefix = g:strip(a:list[0])
+	let prefix = s:strip(a:list[0])
 	let thing = a:list[1]
 	if prefix == '&' | return ['and', thing] | endif
 	if prefix == '!' | return ['not', thing] | endif
