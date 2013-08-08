@@ -14,6 +14,7 @@ endf
 fu! s:TrRegexp(string)
 	let str = s:strip(a:string)
 	let str = str[1:-2]
+	let str = substitute(str, '\\/', '/', 'g')
 	let str = '\s*'.str
 	return ['regexp', str]
 endf
@@ -126,7 +127,6 @@ function! s:strip(string)
 endfunction
 
 function! s:tag(tag, string)
-	echom "--------------".string(a:tag). string(a:string)
 	return '<'.a:tag.'>'.a:string.'</'.a:tag.'>'
 endfunction
 
@@ -145,17 +145,16 @@ endfunction
 " ------------------------------------------------
 "
 " this is what some parse_* functions return if they don't match
-let g:fail = 'fail'
+let s:fail = 'fail'
 
 fu! s:isfail(result)
-	return type(a:result) == 1 && a:result == g:fail
+	return type(a:result) == 1 && a:result == s:fail
 endf
 
 " ------------------------------------------------
 " the various parse functions for every element of a PEG grammar
 
 "Returns: the matched string or Fail
-"XXX \/ durch / ersetzen
 fu! s:parse_regexp(regexp)
 	if g:debug | call s:print_state('regexp', a:regexp) | endif
 	let npos = matchend(s:string, '^'.a:regexp, s:pos)
@@ -165,8 +164,8 @@ fu! s:parse_regexp(regexp)
 		if g:debug | echom '>> regexp: '.string(result) | endif
 		return result
 	else
-		if g:debug | echom '>> regexp: '.string(g:fail) | endif
-		return g:fail
+		if g:debug | echom '>> regexp: '.string(s:fail) | endif
+		return s:fail
 	endif
 endf
 
@@ -181,8 +180,8 @@ fu! s:parse_sequence(sequence)
 		let res = s:parse_st(thing)
 		if s:isfail(res)
 			let s:pos = old_pos
-			if g:debug | echom '>> sequence: '.string(g:fail) | endif
-			return g:fail
+			if g:debug | echom '>> sequence: '.string(s:fail) | endif
+			return s:fail
 		else
 			call add(result, res)
 		endif
@@ -220,8 +219,8 @@ fu! s:parse_choice(choices)
 			let s:pos = old_pos
 		endif
 	endfor
-	if g:debug | echom '>> choices: '.string(g:fail) | endif
-	return g:fail
+	if g:debug | echom '>> choices: '.string(s:fail) | endif
+	return s:fail
 endf
 
 "Returns: whatever the subelement returns, or '' if it fails
@@ -275,8 +274,8 @@ fu! s:parse_oneormore(thing)
 		if g:debug | echom '>> oom: '.string(rest) | endif
 		return rest
 	else
-		if g:debug | echom '>> oom: '.string(g:fail) | endif
-		return g:fail
+		if g:debug | echom '>> oom: '.string(s:fail) | endif
+		return s:fail
 	endif
 endf
 
@@ -288,8 +287,8 @@ fu! s:parse_and(thing)
 	let res = s:parse_st(a:thing)
 	let s:pos = old_pos
 	if s:isfail(res)
-		if g:debug | echom '>> and: '.string(g:fail) | endif
-		return g:fail
+		if g:debug | echom '>> and: '.string(s:fail) | endif
+		return s:fail
 	else
 		if g:debug | echom '>> and: '.string('') | endif
 		return ''
@@ -305,8 +304,8 @@ fu! s:parse_not(thing)
 		if g:debug | echom '>> not: '.string('') | endif
 		return ''
 	else
-		if g:debug | echom '>> not: '.string(g:fail) | endif
-		return g:fail
+		if g:debug | echom '>> not: '.string(s:fail) | endif
+		return s:fail
 	endif
 endf
 
@@ -333,8 +332,8 @@ fu! s:parse_st(nt)
 	let subrule = a:nt[1]
 	let result = s:parse_{type}(subrule)
 	if s:isfail(result)
-		"let g:cache[cache_key] = [s:pos, g:fail]
-		return g:fail
+		"let g:cache[cache_key] = [s:pos, s:fail]
+		return s:fail
 	endif
 	if len(a:nt) > 2
 		let functions = a:nt[2:]
@@ -349,7 +348,7 @@ fu! s:parse_st(nt)
 endf
 
 
-fu! g:parse(grammar, string, start)
+fu! g:parse_begin(grammar, string, start)
 	let s:grammar = s:peggi_grammar
 
 	let s:pos = 0
@@ -361,7 +360,6 @@ fu! g:parse(grammar, string, start)
 		let s:users_grammar[nt] = s:parse_st(s:grammar['pegdefinition'])
 	endfor
 	echom string(s:users_grammar)
-	"return
 
 	let s:concat_seqs = 1
 	let s:grammar = s:users_grammar
@@ -369,4 +367,14 @@ fu! g:parse(grammar, string, start)
 	let s:pos = 0
 	return s:parse_st(s:grammar[a:start])
 endf
+
+fu! g:parse(grammar, string, start)
+	let result = g:parse_begin(a:grammar, a:string, a:start)
+	if strlen(s:string) > s:pos
+		return s:fail
+	else
+		return result
+	endif
+endf
+
 

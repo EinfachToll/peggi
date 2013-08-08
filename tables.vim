@@ -13,7 +13,7 @@ let s:grammar = {
 			\ 'table_div' : '/|[-|]\+|/',
 			\ 'table_header' : 'table_header_line.tag("tr")  (/\n/ table_div /\n/).skip()',
 			\ 'table_block' : 'table_line (/\n/.skip() table_line)+',
-			\ 'table' : '(table_header? table_block /$/).tag("table")',
+			\ 'table' : '(table_header? table_block).tag("table")',
 			\ }
 
 
