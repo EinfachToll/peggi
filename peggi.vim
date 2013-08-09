@@ -182,7 +182,7 @@ let s:peggi_grammar = {
 "let g:string = '!/df_bla/?"so!*+so"*|   (hm |!/bla d/)'
 "let g:string = '!/adf/ + sdf | (ahm | jo)'
 "let g:string = 'adf | ahm | jo'
-"echom ">>>".string(s:parse_st(pegdefinition))
+"echom ">>>".string(s:parse_thing(pegdefinition))
 
 
 
@@ -193,7 +193,7 @@ fu! s:print_state(function, arg)
 endf
 
 
-let g:debug = 1
+let g:debug = 0
 
 
 " ------------------------------------------------
@@ -231,7 +231,7 @@ fu! s:parse_sequence(sequence)
 	let res = ''
 	for thing in a:sequence
 		unlet res "necessary, because the type of the parse result may change
-		let res = s:parse_st(thing)
+		let res = s:parse_thing(thing)
 		if s:isfail(res)
 			let s:pos = old_pos
 			if g:debug | echom '>> sequence: '.string(s:fail) | endif
@@ -253,7 +253,7 @@ endf
 fu! s:parse_nonterminal(nonterminal)
 	if g:debug | call s:print_state('nonterminal', a:nonterminal) | endif
 	let nt = s:grammar[a:nonterminal]
-	let result = s:parse_st(nt)
+	let result = s:parse_thing(nt)
 	if g:debug | echom '>> nonterminal: '.string(a:nonterminal).": ".string(result) | endif
 	return result
 endf
@@ -265,7 +265,7 @@ fu! s:parse_choice(choices)
 	let res = ''
 	for thing in a:choices
 		unlet res "necessary, because the type of the parse result may change
-		let res = s:parse_st(thing)
+		let res = s:parse_thing(thing)
 		if !s:isfail(res)
 			if g:debug | echom '>> choices: '.string(res) | endif
 			return res
@@ -281,7 +281,7 @@ endf
 fu! s:parse_optional(thing)
 	if g:debug | call s:print_state('optional', a:thing) | endif
 	let old_pos = s:pos
-	let res = s:parse_st(a:thing)
+	let res = s:parse_thing(a:thing)
 	if s:isfail(res)
 		let s:pos = old_pos
 		if g:debug | echom '>> optional: '.string('') | endif
@@ -298,7 +298,7 @@ fu! s:parse_zeroormore(thing)
 	let res = ''
 	while 1
 		unlet res "necessary, because the type of the parse result may change
-		let res = s:parse_st(a:thing)
+		let res = s:parse_thing(a:thing)
 		if s:isfail(res)
 			break
 		else
@@ -317,7 +317,7 @@ endf
 "Returns: a list of whatever the subitem returns, as long as it matches, or Fail if doesn't match
 fu! s:parse_oneormore(thing)
 	if g:debug | call s:print_state('oneormore', a:thing) | endif
-	let first = s:parse_st(a:thing)
+	let first = s:parse_thing(a:thing)
 	if !s:isfail(first)
 		let rest = s:parse_zeroormore(a:thing)
 		if s:concat_seqs 
@@ -338,7 +338,7 @@ endf
 fu! s:parse_and(thing)
 	if g:debug | call s:print_state('and', a:thing) | endif
 	let old_pos = s:pos
-	let res = s:parse_st(a:thing)
+	let res = s:parse_thing(a:thing)
 	let s:pos = old_pos
 	if s:isfail(res)
 		if g:debug | echom '>> and: '.string(s:fail) | endif
@@ -369,53 +369,54 @@ endf
 "
 "We cache the input values (a:thing and s:pos) and the corresponding result
 "this is called packrat parsing. At least I think so.
-let g:cache = {}
-fu! s:parse_st(nt)
-	if g:debug | call s:print_state('parse', a:nt) | endif
+fu! s:parse_thing(thing)
+	if g:debug | call s:print_state('parse', a:thing) | endif
 
-	"XXX irgendwie das nt statt dem ganzen inhalt speichern
-	"let cache_key = s:pos . string(a:nt)
-	"if has_key(g:cache, cache_key)
-	"	echom "Yayyyyyyyyy, cache hit!"
-	"	let cache_content = g:cache[cache_key]
-	"	let s:pos = cache_content[0]
-	"	return cache_content[1]
-	"endif
+	let cache_key = s:pos . string(a:thing)
+	if has_key(s:cache, cache_key)
+		let cache_content = s:cache[cache_key]
+		let s:pos = cache_content[0]
+		"echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
+		return cache_content[1]
+	endif
 
-	let type = a:nt[0]
-	let subrule = a:nt[1]
+	let type = a:thing[0]
+	let subrule = a:thing[1]
 	let result = s:parse_{type}(subrule)
 	if s:isfail(result)
-		"let g:cache[cache_key] = [s:pos, s:fail]
+		let s:cache[cache_key] = [s:pos, s:fail]
 		return s:fail
 	endif
-	if len(a:nt) > 2
-		let functions = a:nt[2:]
+	if len(a:thing) > 2
+		let functions = a:thing[2:]
 		for funk in functions
 			let res = call(function(funk[0]), funk[1:] + [result])
 			unlet result
 			let result = res
 		endfor
 	endif
-	"let g:cache[cache_key] = [s:pos, result]
+	let s:cache[cache_key] = [s:pos, result]
 	return result
 endf
 
 
 fu! g:parse_begin(grammar, string, start)
+	let s:cache = {}
+	let s:pos = 0
 	let s:grammar = s:peggi_grammar
-	let s:pos = 0
 	let s:concat_seqs = 0
-
 	let s:string = a:grammar
-	let s:users_grammar = s:parse_st(s:grammar['peggrammar'])
-	call s:pprint(s:users_grammar)
+	let s:users_grammar = s:parse_nonterminal('peggrammar')
 
-	let s:concat_seqs = 1
-	let s:grammar = s:users_grammar
-	let s:string = a:string
+	"call s:pprint(s:users_grammar)
+
+	let s:cache = {}
 	let s:pos = 0
-	return s:parse_st(s:grammar[a:start])
+	let s:grammar = s:users_grammar
+	let s:concat_seqs = 1
+	let s:string = a:string
+
+	return s:parse_nonterminal(a:start)
 endf
 
 fu! g:parse(grammar, string, start)
