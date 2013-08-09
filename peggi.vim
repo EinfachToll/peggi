@@ -1,7 +1,28 @@
 let s:concat_seqs = 1
 
-" ------------------------------------------------
-"  the following defines the raw grammar for the nice grammar
+" -----------------------------------------------------
+"some transformation functions:
+
+function! s:strip(string)
+  let res = substitute(a:string, '^\s\+', '', '')
+  return substitute(res, '\s\+$', '', '')
+endfunction
+
+function! s:tag(tag, string)
+	return '<'.a:tag.'>'.a:string.'</'.a:tag.'>'
+endfunction
+
+function! s:concat(listofstrings)
+	return join(a:listofstrings, '')
+endfunction
+
+function! s:join(sep, listofstrings)
+	return join(a:listofstrings, a:sep)
+endfunction
+
+function! s:skip(string)
+	return ''
+endfunction
 
 fu! s:TrLiteral(string)
 	let str = s:strip(a:string)
@@ -19,8 +40,8 @@ fu! s:TrRegexp(string)
 	return ['regexp', str]
 endf
 
-fu! s:TrIdent(string)
-	let str = s:strip(a:string)
+fu! s:TrNonterminal(list)
+	let str = s:strip(a:list[0])
 	return ['nonterminal', str]
 endf
 
@@ -59,8 +80,9 @@ fu! s:TrChoice(list)
 	return ['choice', trseq]
 endf
 
-fu! s:TakeFirst(list)
-	return a:list[0]
+fu! s:TrDefinition(list)
+	let nt = s:strip(a:list[0])
+	return [nt, a:list[2]]
 endf
 
 fu! s:TakeSecond(list)
@@ -86,18 +108,32 @@ fu! s:AppendTransforms(list)
 	return a:list[0] + a:list[1]
 endf
 
+fu! s:MakeGrammar(lists)
+	let grammar = {}
+	for lst in a:lists
+		let grammar[lst[0]] = lst[1]
+	endfor
+	return grammar
+endf
+
+
+" ------------------------------------------------
+"  the following defines the raw grammar for the nice grammar
+
 
 let s:peggi_grammar = {
-\ 'pegdefinition' : ['sequence', [['nonterminal','pegexpression'], ['regexp','$']], ['s:TakeFirst']],
+\ 'peggrammar' : ['oneormore', ['nonterminal', 'pegdefinition'], ['s:MakeGrammar']],
+\ 'pegdefinition' : ['sequence', [['nonterminal', 'pegidentifier'], ['nonterminal','pegassignment'], ['nonterminal','pegexpression']], ['s:TrDefinition']],
 \ 'pegexpression' : ['sequence', [['nonterminal','pegsequence'], ['zeroormore',['sequence',[['regexp','\s*|\s*'], ['nonterminal','pegsequence']]]]], ['s:TrChoice']],
 \ 'pegsequence' : ['zeroormore', ['nonterminal', 'pegprefix'], ['s:TrSequence']],
 \ 'pegprefix' : ['sequence', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], ['s:TrPrefix']],
 \ 'pegsuffix' : ['sequence', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*']]]]], ['s:TrSuffix']],
-\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegidentifier'], ['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:TakeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:AppendTransforms']],
+\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['sequence', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegassignment']]], ['s:TrNonterminal']], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:TakeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:AppendTransforms']],
 \ 'pegtransform' : ['sequence', [['regexp', '\.'], ['regexp', '[a-zA-Z0-9_:]\+'], ['regexp', '('], ['zeroormore', ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*,\?\s*']], ['regexp', '\s*)']], ['s:TrTransform']],
-\ 'pegidentifier' : ['regexp', '\s*[a-zA-Z_][a-zA-Z0-9_]*\s*', ['s:TrIdent']],
+\ 'pegidentifier' : ['regexp', '\s*[a-zA-Z_][a-zA-Z0-9_]*\s*'],
 \ 'pegregexp' : ['regexp', '\s*/\%(\\.\|[^/]\)*/\s*', ['s:TrRegexp']],
-\ 'pegliteral' : ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', ['s:TrLiteral']]
+\ 'pegliteral' : ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', ['s:TrLiteral']],
+\ 'pegassignment' : ['regexp', '\s*=']
 \ }
 
 "let g:string = 'asd wef /sdf/ "fw" | bla'
@@ -117,30 +153,6 @@ endf
 
 let g:debug = 1
 
-
-" -----------------------------------------------------
-
-"some transformation functions:
-function! s:strip(string)
-  let res = substitute(a:string, '^\s\+', '', '')
-  return substitute(res, '\s\+$', '', '')
-endfunction
-
-function! s:tag(tag, string)
-	return '<'.a:tag.'>'.a:string.'</'.a:tag.'>'
-endfunction
-
-function! s:concat(listofstrings)
-	return join(a:listofstrings, '')
-endfunction
-
-function! s:join(sep, listofstrings)
-	return join(a:listofstrings, a:sep)
-endfunction
-
-function! s:skip(string)
-	return ''
-endfunction
 
 " ------------------------------------------------
 "
@@ -350,16 +362,12 @@ endf
 
 fu! g:parse_begin(grammar, string, start)
 	let s:grammar = s:peggi_grammar
-
 	let s:pos = 0
 	let s:concat_seqs = 0
-	let s:users_grammar = {}
-	for nt in keys(a:grammar)
-		let s:pos = 0
-		let s:string = a:grammar[nt]
-		let s:users_grammar[nt] = s:parse_st(s:grammar['pegdefinition'])
-	endfor
-	echom string(s:users_grammar)
+
+	let s:string = a:grammar
+	let s:users_grammar = s:parse_st(s:grammar['peggrammar'])
+	"echom string(s:users_grammar)
 
 	let s:concat_seqs = 1
 	let s:grammar = s:users_grammar
