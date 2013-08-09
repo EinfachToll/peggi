@@ -1,5 +1,47 @@
 let s:concat_seqs = 1
 
+" ------------------------------------------------
+"  pretty print function for arbitrary types:
+
+fu! s:pprint(thing)
+	let f = s:format(a:thing, 0)
+	let bla = 0
+	for line in f
+		unlet bla
+		let bla = line
+		echom string(bla)
+	endfor
+endf
+
+fu! s:print(string, indent)
+	return repeat(' ', a:indent) . a:string
+endf
+
+fu! s:format(thing, indent)
+	let ls = []
+	if type(a:thing) == type({})
+		call add(ls, s:print('{', a:indent))
+		for key in keys(a:thing)
+			call add(ls, s:print(key, a:indent+2) . ':')
+			let res = s:format(a:thing[key], a:indent+4)
+			let ls += res
+		endfor
+		call add(ls, s:print('}', a:indent))
+	elseif type(a:thing) == type([])
+		call add(ls, s:print('[', a:indent))
+		for item in a:thing
+			let res = s:format(item, a:indent+4)
+			let ls += res
+			unlet item
+		endfor
+		call add(ls, s:print(']', a:indent))
+	else
+		call add(ls, s:print(a:thing, a:indent))
+	endif
+	return ls
+endf
+
+
 " -----------------------------------------------------
 "some transformation functions:
 
@@ -367,7 +409,7 @@ fu! g:parse_begin(grammar, string, start)
 
 	let s:string = a:grammar
 	let s:users_grammar = s:parse_st(s:grammar['peggrammar'])
-	"echom string(s:users_grammar)
+	call s:pprint(s:users_grammar)
 
 	let s:concat_seqs = 1
 	let s:grammar = s:users_grammar
