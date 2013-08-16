@@ -54,6 +54,11 @@ function! s:tag(tag, string)
 	return '<'.a:tag.'>'.a:string.'</'.a:tag.'>'
 endfunction
 
+fu! s:replace(target, origin)
+	return a:target
+endf
+
+
 function! s:concat(listofstrings)
 	return join(a:listofstrings, '')
 endfunction
@@ -66,7 +71,7 @@ function! s:skip(string)
 	return ''
 endfunction
 
-fu! s:TrLiteral(string)
+fu! s:trLiteral(string)
 	let str = s:strip(a:string)
 	let str = str[1:-2]
 	let str = escape(str, '.*[]\^$')
@@ -74,7 +79,7 @@ fu! s:TrLiteral(string)
 	return ['regexp', str]
 endf
 
-fu! s:TrRegexp(string)
+fu! s:trRegexp(string)
 	let str = s:strip(a:string)
 	let str = str[1:-2]
 	let str = substitute(str, '\\/', '/', 'g')
@@ -82,12 +87,12 @@ fu! s:TrRegexp(string)
 	return ['regexp', str]
 endf
 
-fu! s:TrNonterminal(list)
+fu! s:trNonterminal(list)
 	let str = s:strip(a:list[0])
 	return ['nonterminal', str]
 endf
 
-fu! s:TrSuffix(list)
+fu! s:trSuffix(list)
 	let suffix = s:strip(a:list[1])
 	let thing = a:list[0]
 	if suffix == '?' | return ['optional', thing] | endif
@@ -96,7 +101,7 @@ fu! s:TrSuffix(list)
 	return thing
 endf
 
-fu! s:TrPrefix(list)
+fu! s:trPrefix(list)
 	let prefix = s:strip(a:list[0])
 	let thing = a:list[1]
 	if prefix == '&' | return ['and', thing] | endif
@@ -104,14 +109,14 @@ fu! s:TrPrefix(list)
 	return thing
 endf
 
-fu! s:TrSequence(list)
+fu! s:trSequence(list)
 	if len(a:list) == 1
 		return a:list[0]
 	endif
 	return ['sequence', a:list]
 endf
 
-fu! s:TrChoice(list)
+fu! s:trChoice(list)
 	if empty(a:list[1])
 		return a:list[0]
 	endif
@@ -122,16 +127,16 @@ fu! s:TrChoice(list)
 	return ['choice', trseq]
 endf
 
-fu! s:TrDefinition(list)
+fu! s:trDefinition(list)
 	let nt = s:strip(a:list[0])
 	return [nt, a:list[2]]
 endf
 
-fu! s:TakeSecond(list)
+fu! s:takeSecond(list)
 	return a:list[1]
 endf
 
-fu! s:TrTransform(list)
+fu! s:trTransform(list)
 	let funk = a:list[1]
 	if funk !~ '^[gsavlbwt]:'
 		let funk = 's:'.funk
@@ -146,11 +151,16 @@ fu! s:TrTransform(list)
 	return [funk] + good_args
 endf
 
-fu! s:AppendTransforms(list)
+fu! s:trFunction(list)
+	let funk = a:list[0]
+	return ['function', [funk, a:list[2]]]
+endf
+
+fu! s:appendTransforms(list)
 	return a:list[0] + a:list[1]
 endf
 
-fu! s:MakeGrammar(lists)
+fu! s:makeGrammar(lists)
 	let grammar = {}
 	for lst in a:lists
 		let grammar[lst[0]] = lst[1]
@@ -164,17 +174,18 @@ endf
 
 
 let s:peggi_grammar = {
-\ 'peggrammar' : ['oneormore', ['nonterminal', 'pegdefinition'], ['s:MakeGrammar']],
-\ 'pegdefinition' : ['sequence', [['nonterminal', 'pegidentifier'], ['nonterminal','pegassignment'], ['nonterminal','pegexpression']], ['s:TrDefinition']],
-\ 'pegexpression' : ['sequence', [['nonterminal','pegsequence'], ['zeroormore',['sequence',[['regexp','\s*|\s*'], ['nonterminal','pegsequence']]]]], ['s:TrChoice']],
-\ 'pegsequence' : ['zeroormore', ['nonterminal', 'pegprefix'], ['s:TrSequence']],
-\ 'pegprefix' : ['sequence', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], ['s:TrPrefix']],
-\ 'pegsuffix' : ['sequence', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*']]]]], ['s:TrSuffix']],
-\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['sequence', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegassignment']]], ['s:TrNonterminal']], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:TakeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:AppendTransforms']],
-\ 'pegtransform' : ['sequence', [['regexp', '\.'], ['regexp', '[a-zA-Z0-9_:]\+'], ['regexp', '('], ['zeroormore', ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*,\?\s*']], ['regexp', '\s*)']], ['s:TrTransform']],
+\ 'peggrammar' : ['oneormore', ['nonterminal', 'pegdefinition'], ['s:makeGrammar']],
+\ 'pegdefinition' : ['sequence', [['nonterminal', 'pegidentifier'], ['nonterminal','pegassignment'], ['nonterminal','pegexpression']], ['s:trDefinition']],
+\ 'pegexpression' : ['sequence', [['nonterminal','pegsequence'], ['zeroormore',['sequence',[['regexp','\s*|\s*'], ['nonterminal','pegsequence']]]]], ['s:trChoice']],
+\ 'pegsequence' : ['zeroormore', ['nonterminal', 'pegprefix'], ['s:trSequence']],
+\ 'pegprefix' : ['sequence', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], ['s:trPrefix']],
+\ 'pegsuffix' : ['sequence', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*']]]]], ['s:trSuffix']],
+\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['nonterminal', 'pegfunction'], ['sequence', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegassignment']]], ['s:trNonterminal']], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:takeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:appendTransforms']],
+\ 'pegtransform' : ['sequence', [['regexp', '\.'], ['regexp', '[a-zA-Z0-9_:]\+'], ['regexp', '('], ['zeroormore', ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*,\?\s*']], ['regexp', '\s*)']], ['s:trTransform']],
+\ 'pegfunction' : ['sequence', [['regexp', '[sg]:[a-zA-Z0-9_]\+'], ['regexp', '('], ['nonterminal', 'pegexpression'], ['regexp', '\s*)']], ['s:trFunction']],
 \ 'pegidentifier' : ['regexp', '\s*[a-zA-Z_][a-zA-Z0-9_]*\s*'],
-\ 'pegregexp' : ['regexp', '\s*/\%(\\.\|[^/]\)*/\s*', ['s:TrRegexp']],
-\ 'pegliteral' : ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', ['s:TrLiteral']],
+\ 'pegregexp' : ['regexp', '\s*/\%(\\.\|[^/]\)*/\s*', ['s:trRegexp']],
+\ 'pegliteral' : ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', ['s:trLiteral']],
 \ 'pegassignment' : ['regexp', '\s*=']
 \ }
 
@@ -188,21 +199,22 @@ let s:peggi_grammar = {
 
 
 
-fu! s:print_state(function, arg)
-	echom '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . ' --- ' . expand('<sfile>')
+fu! s:print_state(function, arg, ...)
+	let rest = a:0 ? ' --- ' . join(a:000, ' --- ') : ''
+	echom '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest . ' --- ' . expand('<sfile>')
 endf
 
 
-let g:debug = 0
+let g:debug = 1
 
 
 " ------------------------------------------------
 "
 " this is what some parse_* functions return if they don't match
-let s:fail = 'fail'
+let g:fail = 'fail'
 
 fu! s:isfail(result)
-	return type(a:result) == 1 && a:result == s:fail
+	return type(a:result) == 1 && a:result == g:fail
 endf
 
 " ------------------------------------------------
@@ -210,18 +222,34 @@ endf
 
 "Returns: the matched string or Fail
 fu! s:parse_regexp(regexp)
-	if g:debug | call s:print_state('regexp', a:regexp) | endif
+	if g:debug | call s:print_state('regexp', a:regexp, strpart(s:string, s:pos)) | endif
 	let npos = matchend(s:string, '^'.a:regexp, s:pos)
-	if npos != -1
+	if npos == s:pos
+		if g:debug | echom '>> regexp: '.string('') | endif
+		return ''
+	elseif npos != -1
 		let result = s:string[s:pos : npos-1]
 		let s:pos = npos
 		if g:debug | echom '>> regexp: '.string(result) | endif
 		return result
 	else
-		if g:debug | echom '>> regexp: '.string(s:fail) | endif
-		return s:fail
+		if g:debug | echom '>> regexp: '.string(g:fail) | endif
+		return g:fail
 	endif
 endf
+
+"Tries to match the arg (without consuming) and applies the given function on
+"the result
+fu! s:parse_function(funandargs)
+	if g:debug | call s:print_state('function', string(a:funandargs)) | endif
+	let old_pos = s:pos
+	let res = s:parse_thing(a:funandargs[1])
+	let s:pos = old_pos
+	let value = call(a:funandargs[0], [res])
+	if g:debug | echom '>> function: '.string(value) | endif
+	return s:parse_regexp(value)
+endf
+
 
 "Returns: a list of whatever the subitems return or Fail (if one of them fails)
 fu! s:parse_sequence(sequence)
@@ -234,8 +262,8 @@ fu! s:parse_sequence(sequence)
 		let res = s:parse_thing(thing)
 		if s:isfail(res)
 			let s:pos = old_pos
-			if g:debug | echom '>> sequence: '.string(s:fail) | endif
-			return s:fail
+			if g:debug | echom '>> sequence: '.string(g:fail) | endif
+			return g:fail
 		else
 			call add(result, res)
 		endif
@@ -273,8 +301,8 @@ fu! s:parse_choice(choices)
 			let s:pos = old_pos
 		endif
 	endfor
-	if g:debug | echom '>> choices: '.string(s:fail) | endif
-	return s:fail
+	if g:debug | echom '>> choices: '.string(g:fail) | endif
+	return g:fail
 endf
 
 "Returns: whatever the subelement returns, or '' if it fails
@@ -328,8 +356,8 @@ fu! s:parse_oneormore(thing)
 		if g:debug | echom '>> oom: '.string(rest) | endif
 		return rest
 	else
-		if g:debug | echom '>> oom: '.string(s:fail) | endif
-		return s:fail
+		if g:debug | echom '>> oom: '.string(g:fail) | endif
+		return g:fail
 	endif
 endf
 
@@ -341,8 +369,8 @@ fu! s:parse_and(thing)
 	let res = s:parse_thing(a:thing)
 	let s:pos = old_pos
 	if s:isfail(res)
-		if g:debug | echom '>> and: '.string(s:fail) | endif
-		return s:fail
+		if g:debug | echom '>> and: '.string(g:fail) | endif
+		return g:fail
 	else
 		if g:debug | echom '>> and: '.string('') | endif
 		return ''
@@ -358,8 +386,8 @@ fu! s:parse_not(thing)
 		if g:debug | echom '>> not: '.string('') | endif
 		return ''
 	else
-		if g:debug | echom '>> not: '.string(s:fail) | endif
-		return s:fail
+		if g:debug | echom '>> not: '.string(g:fail) | endif
+		return g:fail
 	endif
 endf
 
@@ -369,38 +397,42 @@ endf
 "
 "We cache the input values (a:thing and s:pos) and the corresponding result
 "this is called packrat parsing. At least I think so.
+let s:packrat_enabled = 0
 fu! s:parse_thing(thing)
-	if g:debug | call s:print_state('parse', a:thing) | endif
+	"if g:debug | call s:print_state('parse', a:thing) | endif
 
-	let cache_key = s:pos . string(a:thing)
-	if has_key(s:cache, cache_key)
-		let cache_content = s:cache[cache_key]
-		let s:pos = cache_content[0]
-		"echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
-		return cache_content[1]
+	if s:packrat_enabled
+		let cache_key = s:pos . string(a:thing)
+		if has_key(s:cache, cache_key)
+			let cache_content = s:cache[cache_key]
+			let s:pos = cache_content[0]
+			echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
+			return cache_content[1]
+		endif
 	endif
 
 	let type = a:thing[0]
 	let subrule = a:thing[1]
 	let result = s:parse_{type}(subrule)
-	if s:isfail(result)
-		let s:cache[cache_key] = [s:pos, s:fail]
-		return s:fail
-	endif
 	if len(a:thing) > 2
 		let functions = a:thing[2:]
 		for funk in functions
+			if funk[0] =~ '[gs]:\l' && s:isfail(result)
+				if s:packrat_enabled | let s:cache[cache_key] = [s:pos, g:fail] | endif
+				return g:fail
+			endif
 			let res = call(function(funk[0]), funk[1:] + [result])
 			unlet result
 			let result = res
 		endfor
 	endif
-	let s:cache[cache_key] = [s:pos, result]
+	if s:packrat_enabled | let s:cache[cache_key] = [s:pos, result] | endif
 	return result
 endf
 
 
 fu! g:parse_begin(grammar, string, start)
+	let g:debug = 0
 	let s:cache = {}
 	let s:pos = 0
 	let s:grammar = s:peggi_grammar
@@ -408,7 +440,9 @@ fu! g:parse_begin(grammar, string, start)
 	let s:string = a:grammar
 	let s:users_grammar = s:parse_nonterminal('peggrammar')
 
-	"call s:pprint(s:users_grammar)
+	call s:pprint(s:users_grammar)
+	let g:debug = 0
+	"return
 
 	let s:cache = {}
 	let s:pos = 0
@@ -422,7 +456,7 @@ endf
 fu! g:parse(grammar, string, start)
 	let result = g:parse_begin(a:grammar, a:string, a:start)
 	if strlen(s:string) > s:pos
-		return s:fail
+		return g:fail
 	else
 		return result
 	endif
