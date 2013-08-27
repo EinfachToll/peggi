@@ -2,38 +2,38 @@
 so peggi.vim
 set maxfuncdepth=10000
 
-let s:stack = [-1]
+let g:peggi_additional_state = [-1]
 
 fu! g:Pushindent(element)
-	call add(s:stack, strdisplaywidth(a:element, 0)-2)
-	"echom "--------" . string(s:stack)
+	call add(g:peggi_additional_state, strdisplaywidth(a:element, 0)-2)
+	"echom "--------" . string(g:peggi_additional_state)
 	return a:element
 endf
 
 fu! g:Popindent(ele)
-	call remove(s:stack, -1)
-	"echom "--------" . string(s:stack)
+	call remove(g:peggi_additional_state, -1)
+	"echom "--------" . string(g:peggi_additional_state)
 	return a:ele
 endf
 
 fu! g:leqlastindent(spaces)
-	"echom "--------" . string(s:stack)
-	return strdisplaywidth(a:spaces, 0) <= s:stack[-1] ? '' : g:fail
+	"echom "--------" . string(g:peggi_additional_state)
+	return strdisplaywidth(a:spaces, 0) <= g:peggi_additional_state[-1] ? '' : g:fail
 endf
 
 fu! g:gtsndlastindent(spaces)
-	"echom "--------" . string(s:stack)
-	return strdisplaywidth(a:spaces, 0) > s:stack[-2] ? '' : g:fail
+	"echom "--------" . string(g:peggi_additional_state)
+	return strdisplaywidth(a:spaces, 0) > g:peggi_additional_state[-2] ? '' : g:fail
 endf
 
 fu! g:gtlastindent(spaces)
-	"echom "--------" . string(s:stack)
-	return strdisplaywidth(a:spaces, 0) > s:stack[-1] ? '' : g:fail
+	"echom "--------" . string(g:peggi_additional_state)
+	return strdisplaywidth(a:spaces, 0) > g:peggi_additional_state[-1] ? '' : g:fail
 endf
 
 
 fu! g:clear(ele)
-	call remove(s:stack, 0, len(s:stack)-1)
+	call remove(g:peggi_additional_state, 0, len(g:peggi_additional_state)-1)
 	return a:ele
 endf
 
