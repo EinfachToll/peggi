@@ -1,6 +1,7 @@
 let s:concat_seqs = 1
 let s:debug = 0
 let s:packrat_enabled = 1
+let g:peggi_additional_state = 0
 
 " ------------------------------------------------
 "  pretty print function for arbitrary types:
@@ -407,7 +408,7 @@ fu! s:parse_thing(thing)
 		if has_key(s:cache, cache_key)
 			let cache_content = s:cache[cache_key]
 			let s:pos = cache_content[0]
-			echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
+			"echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
 			let g:peggi_additional_state = cache_content[2]
 			return cache_content[1]
 		endif
@@ -469,10 +470,10 @@ fu! g:parse(grammar, string, start)
 endf
 
 fu! g:parse_file(grammar, file, start)
-	return g:parse(a:grammar, join(readfile(a:file), "\n"), a:start)
+	return g:parse(a:grammar, join(readfile(a:file), "\n")."\n", a:start)
 endf
 
 fu! g:parse_file_begin(grammar, file, start)
-	return g:parse_begin(a:grammar, join(readfile(a:file), "\n"), a:start)
+	return g:parse_begin(a:grammar, join(readfile(a:file), "\n")."\n", a:start)
 endf
 

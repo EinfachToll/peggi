@@ -2,6 +2,7 @@
 so peggi.vim
 set maxfuncdepth=10000
 
+unlet g:peggi_additional_state
 let g:peggi_additional_state = [-1]
 
 fu! g:Pushindent(element)
