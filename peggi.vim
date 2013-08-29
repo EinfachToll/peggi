@@ -1,7 +1,8 @@
 let s:concat_seqs = 1
 let s:debug = 0
 let s:packrat_enabled = 1
-let g:peggi_additional_state = 0
+
+let g:peggi_additional_state = []
 
 " ------------------------------------------------
 "  pretty print function for arbitrary types:
@@ -54,7 +55,7 @@ function! s:strip(string)
 endfunction
 
 function! s:tag(tag, string)
-	return '<'.a:tag.'>'.a:string.'</'.a:tag.'>'
+	return '<'.a:tag.'>'.a:string.'</'.a:tag.'>\n'
 endfunction
 
 fu! s:replace(target, origin)
@@ -204,7 +205,8 @@ let s:peggi_grammar = {
 
 fu! s:print_state(function, arg, ...)
 	let rest = a:0 ? ' --- ' . join(a:000, ' --- ') : ''
-	echom '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest . ' --- ' . expand('<sfile>')
+	echom '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest
+	"echom '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest . ' --- ' . expand('<sfile>')
 endf
 
 
@@ -224,7 +226,7 @@ endf
 
 "Returns: the matched string or Fail
 fu! s:parse_regexp(regexp)
-	if s:debug | call s:print_state('regexp', a:regexp, strpart(s:string, s:pos)) | endif
+	if s:debug | call s:print_state('regexp', a:regexp, strpart(s:string, s:pos, 50)) | endif
 	let npos = matchend(s:string, '^'.a:regexp, s:pos)
 	"echom '+++' . s:string . ' ^'.a:regexp . s:pos . ' ' . npos
 	if npos == s:pos
@@ -408,7 +410,9 @@ fu! s:parse_thing(thing)
 		if has_key(s:cache, cache_key)
 			let cache_content = s:cache[cache_key]
 			let s:pos = cache_content[0]
-			"echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
+			if s:debug
+				echom "Yayyyyyyyyy, cache hit! -> " . cache_key . " ----- " . string(cache_content)
+			endif
 			let g:peggi_additional_state = cache_content[2]
 			return cache_content[1]
 		endif
