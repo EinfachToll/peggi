@@ -3,7 +3,7 @@ set maxfuncdepth=1000000
 so peggi.vim
 
 fu! g:addhtmlstuff(content)
-	return '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n<html>\n <head>\n <link rel="Stylesheet" type="text/css" href="style.css">\n <title>Testwiki</title>\n <meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n </head>\n <body>\n' . a:content . '\n</body>\n </html>'
+	return '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n<html>\n <head>\n <link rel="Stylesheet" type="text/css" href="style.css">\n <title>Testwiki</title>\n <meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n </head>\n <body>\n' . a:content . '\n</body>\n</html>'
 endf
 
 fu! g:header(string)
@@ -18,66 +18,98 @@ endf
 
 
 let g:peggi_additional_state = [-1]
+
 fu! g:Pushindent(element)
-	call add(g:peggi_additional_state, strdisplaywidth(a:element, 0)-2)
-	"echom "--------" . string(g:peggi_additional_state)
+	call add(g:peggi_additional_state, strdisplaywidth(matchstr(a:element, '^\s*'), 0))
+	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
 	return a:element
 endf
 
 fu! g:Popindent(ele)
 	call remove(g:peggi_additional_state, -1)
-	"echom "--------" . string(g:peggi_additional_state)
+	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
 	return a:ele
 endf
 
 fu! g:leqlastindent(spaces)
-	"echom "--------" . string(g:peggi_additional_state)
+	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
 	return strdisplaywidth(a:spaces, 0) <= g:peggi_additional_state[-1] ? '' : g:fail
 endf
 
 fu! g:gtsndlastindent(spaces)
-	"echom "--------" . string(g:peggi_additional_state)
+	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
 	return strdisplaywidth(a:spaces, 0) > g:peggi_additional_state[-2] ? '' : g:fail
 endf
 
 fu! g:gtlastindent(spaces)
-	"echom "--------" . string(g:peggi_additional_state)
+	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
 	return strdisplaywidth(a:spaces, 0) > g:peggi_additional_state[-1] ? '' : g:fail
 endf
 
+function! g:checkbox(bulletandcb)
+	let [bullet, cb] = a:bulletandcb
+	if cb != ''
+		let idx = index([' ', '.', 'o', 'O', 'X'], cb)
+		let cb = ' class="done'.idx.'"'
+	endif
+	let type = ''
+	if bullet =~ '\d\+'
+		let type = '1'
+	elseif bullet =~# '[ivxlcdm]\+)'
+		let type = 'i'
+	elseif bullet =~# '[IVXLCDM]\+)'
+		let type = 'I'
+	elseif bullet =~# '\u'
+		let type = 'A'
+	elseif bullet =~# '\l'
+		let type = 'a'
+	endif
+	if type != ''
+		let type = ' type="'.type.'"'
+	endif
+	return '<li' . type . cb . '>'
+endfunction
+
+"text ( emptyline | &(g:gtlastindent(/\s*/)) (list | /\s\+/ text) )*
 
 unlet! s:grammar
 let s:grammar = '
-			\file = ((emptyline | header | hline | paragraph)*).g:addhtmlstuff()
-			\emptyline = /\s*\n/.skip()
-			\header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\n/.g:header()
-			\hline = /-----*\n/.replace("<hr/>")
-			\paragraph = ((table | list | ordinarytextline)+).tag("p")
-			\ordinarytextline = !emptyline !header !hline /[^\n]*/ /\n/.g:breakorspace()
-			\
-			\table = &/|/ (table_header? table_block).tag("table")
-			\table_header = table_header_line.tag("tr")  (/\n/ table_div /\n/).skip()
-			\table_block = table_line (/\n/.skip() table_line)*
-			\table_div = /|[-|]\+|/
-			\table_header_line = bar (header_cell bar)+
-			\table_line = (bar (body_cell bar)+).tag("tr")
-			\body_cell = /[^\n|]\+/.strip().tag("td")
-			\header_cell = /[^\n|]\+/.strip().tag("th")
-			\bar = /|/.skip()
-			\
-			\list = blist | nlist 
-			\blist = &listbullet (blist_item+).tag("ul")
-			\nlist = &listnumber (nlist_item+).tag("ol")
-			\blist_item = (&(listbullet.g:Pushindent()) &(g:leqlastindent(/\s*/)) &(g:gtsndlastindent(/\s*/)) /\s*/.skip() listbullet.replace("<li>") text ( &(g:gtlastindent(/\s*/)) (list | /\s\+/ text) )*).g:Popindent()
-			\nlist_item = (&(listnumber.g:Pushindent()) &(g:leqlastindent(/\s*/)) &(g:gtsndlastindent(/\s*/)) /\s*/.skip() listnumber.replace("<li>") text ( &(g:gtlastindent(/\s*/)) (list | /\s\+/ text) )*).g:Popindent()
-			\text = /[^\n]\+/ /\n/.skip()
-			\listbullet = /\s*[-*#•]\s\+/
-			\listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
+			\ file = ((emptyline | header | hline | paragraph)*).g:addhtmlstuff()
+			\ emptyline = /\s*\n/.skip()
+			\ header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\n/.g:header()
+			\ hline = /-----*\n/.replace("<hr/>")
+			\ paragraph = ((table | list | ordinarytextline)+).tag("p")
+			\ ordinarytextline = !emptyline !header !hline &(g:gtlastindent(/\s*/)) /[^\n]*/ /\n/.g:breakorspace()
+			\ 
+			\ table = &(g:gtlastindent(/\s*/)) &bar (table_header? table_block).tag("table")
+			\ table_header = table_header_line.tag("tr")  (/\n/ table_div /\n/).skip()
+			\ table_block = table_line (/\n/.skip() table_line)*
+			\ table_div = /|[-|]\+|/
+			\ table_header_line = bar (header_cell bar)+
+			\ table_line = (bar (body_cell bar)+).tag("tr")
+			\ body_cell = /[^\n|]\+/.strip().tag("td")
+			\ header_cell = /[^\n|]\+/.strip().tag("th")
+			\ bar = /|/.skip()
+			\ 
+			\ list = blist | nlist
+			\ blist = &listbullet ((&(g:gtlastindent(/\s*/)) blist_item)+).tag("ul")
+			\ nlist = &listnumber ((&(g:gtlastindent(/\s*/)) nlist_item)+).tag("ol")
+			\ blist_item = (&(listbullet.g:Pushindent()) /\s*/.skip() (listbullet checkbox?).split().g:checkbox() list_item_content).g:Popindent()
+			\ nlist_item = (&(listnumber.g:Pushindent()) /\s*/.skip() (listnumber checkbox?).split().g:checkbox() list_item_content).g:Popindent()
+			\ listbullet = /\s*[-*#•]\s\+/
+			\ listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
+			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
+			\ text = /[^\n]*/ /\n/.skip()
+			\ list_item_content = stuff (emptyline paragraph)*
+			\ stuff = text ((table | list | ordinarytextline)*)
 			\'
 
 let g:peggi_debug = 0
 
-call writefile(split(g:parse_file(s:grammar, 'in.wiki', 'file'), '\\n'), 'out.html')
-for wikifile in split(globpath('vwtest', '*.wiki'), '\n')
+for wikifile in split(globpath('vwtest/', '*.wiki'), '\n')
 	call writefile(split(g:parse_file(s:grammar, wikifile, 'file'), '\\n'), 'vwtest/'.fnamemodify(wikifile, ':t:r').'.html')
 endfor
+finish
+
+call writefile(split(g:parse_file(s:grammar, 'in.wiki', 'file'), '\\n'), 'out.html')
+
