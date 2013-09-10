@@ -7,7 +7,7 @@ fu! g:addhtmlstuff(content)
 endf
 
 fu! g:header(string)
-	let res = matchlist(a:string, '\s*\(=\{1,6}\)\([^=].\{-}[^=]\)\1\s*\n')
+	let res = matchlist(a:string, '\s*\(=\{1,6}\)\([^=].\{-}[^=]\)\1\s*\r')
 	let level = strlen(res[1])
 	return '<h'.level.'>'.res[2].'</h'.level.'>'
 endf
@@ -70,25 +70,23 @@ function! g:checkbox(bulletandcb)
 	return '<li' . type . cb . '>'
 endfunction
 
-"text ( emptyline | &(g:gtlastindent(/\s*/)) (list | /\s\+/ text) )*
-
 unlet! s:grammar
 let s:grammar = '
 			\ file = ((emptyline | header | hline | paragraph)*).g:addhtmlstuff()
-			\ emptyline = /\s*\n/.skip()
-			\ header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\n/.g:header()
-			\ hline = /-----*\n/.replace("<hr/>")
+			\ emptyline = /\s*\r/.skip()
+			\ header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\r/.g:header()
+			\ hline = /-----*\r/.replace("<hr/>")
 			\ paragraph = ((table | list | ordinarytextline)+).tag("p")
-			\ ordinarytextline = !emptyline !header !hline &(g:gtlastindent(/\s*/)) /[^\n]*/ /\n/.g:breakorspace()
+			\ ordinarytextline = !emptyline !header !hline &(g:gtlastindent(/\s*/)) /[^\r]*/ /\r/.g:breakorspace()
 			\ 
 			\ table = &(g:gtlastindent(/\s*/)) &bar (table_header? table_block).tag("table")
-			\ table_header = table_header_line.tag("tr")  (/\n/ table_div /\n/).skip()
-			\ table_block = table_line (/\n/.skip() table_line)*
+			\ table_header = table_header_line.tag("tr")  (/\r/ table_div /\r/).skip()
+			\ table_block = table_line (/\r/.skip() table_line)*
 			\ table_div = /|[-|]\+|/
 			\ table_header_line = bar (header_cell bar)+
 			\ table_line = (bar (body_cell bar)+).tag("tr")
-			\ body_cell = /[^\n|]\+/.strip().tag("td")
-			\ header_cell = /[^\n|]\+/.strip().tag("th")
+			\ body_cell = /[^\r|]\+/.strip().tag("td")
+			\ header_cell = /[^\r|]\+/.strip().tag("th")
 			\ bar = /|/.skip()
 			\ 
 			\ list = blist | nlist
@@ -99,16 +97,18 @@ let s:grammar = '
 			\ listbullet = /\s*[-*#•]\s\+/
 			\ listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
-			\ text = /[^\n]*/ /\n/.skip()
+			\ text = /[^\r]*/ /\r/.skip()
 			\ list_item_content = stuff (emptyline paragraph)*
 			\ stuff = text ((table | list | ordinarytextline)*)
 			\'
 
 let g:peggi_debug = 0
 
+
 for wikifile in split(globpath('vwtest/', '*.wiki'), '\n')
 	call writefile(split(g:parse_file(s:grammar, wikifile, 'file'), '\\n'), 'vwtest/'.fnamemodify(wikifile, ':t:r').'.html')
 endfor
+
 finish
 
 call writefile(split(g:parse_file(s:grammar, 'in.wiki', 'file'), '\\n'), 'out.html')

@@ -505,7 +505,7 @@ fu! s:parse_not(thing)
 	if s:debug | call s:print_state(a:thing) | endif
 	let result = s:parse_and(['and'] + a:thing[1:])
 	if s:isfail(result)
-		call s:print_result('not', result)
+		call s:print_result('not', '')
 		return ''
 	else
 		call s:print_result('not', g:fail)
@@ -601,10 +601,10 @@ fu! g:parse(grammar, string, start)
 endf
 
 fu! g:parse_file(grammar, file, start)
-	return g:parse(a:grammar, join(readfile(a:file), "\n")."\n", a:start)
+	return g:parse(a:grammar, join(readfile(a:file), "\r")."\r", a:start)
 endf
 
 fu! g:parse_file_begin(grammar, file, start)
-	return g:parse_begin(a:grammar, join(readfile(a:file), "\n")."\n", a:start)
+	return g:parse_begin(a:grammar, join(readfile(a:file), "\r")."\r", a:start)
 endf
 
