@@ -70,14 +70,30 @@ function! g:checkbox(bulletandcb)
 	return '<li' . type . cb . '>'
 endfunction
 
+fu! g:startpre(class)
+	if a:class !~ '^\s*$'
+		return '<pre ' . a:class . '>'
+	else
+		return '<pre>'
+	endif
+endf
+
+fu! g:endpre(string)
+	let str = substitute(a:string, '\r\s*}}}\s*\r$', '', '')
+	return str . '</pre>'
+endf
+
+
+
 unlet! s:grammar
 let s:grammar = '
-			\ file = ((emptyline | header | hline | paragraph)*).g:addhtmlstuff()
+			\ file = ((emptyline | header | hline | paragraph.tag("p"))*).g:addhtmlstuff()
 			\ emptyline = /\s*\r/.skip()
 			\ header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\r/.g:header()
 			\ hline = /-----*\r/.replace("<hr/>")
-			\ paragraph = ((table | list | ordinarytextline)+).tag("p")
-			\ ordinarytextline = !emptyline !header !hline &(g:gtlastindent(/\s*/)) /[^\r]*/ /\r/.g:breakorspace()
+			\ paragraph = (table | list | preformatted_text | ordinarytextline)+
+			\ ordinarytextline = !emptyline !header !hline &(g:gtlastindent(/\s*/)) text
+			\ text = /[^\r]*/ /\r/.g:breakorspace()
 			\ 
 			\ table = &(g:gtlastindent(/\s*/)) &bar (table_header? table_block).tag("table")
 			\ table_header = table_header_line.tag("tr")  (/\r/ table_div /\r/).skip()
@@ -97,19 +113,21 @@ let s:grammar = '
 			\ listbullet = /\s*[-*#•]\s\+/
 			\ listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
-			\ text = /[^\r]*/ /\r/.skip()
-			\ list_item_content = stuff (emptyline paragraph)*
-			\ stuff = text ((table | list | ordinarytextline)*)
+			\ list_item_content = text paragraph? (emptyline paragraph.tag("p"))*
+			\ 
+			\ preformatted_text = &(g:gtlastindent(/\s*/)) "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r}}}\s*\r/.g:endpre()
 			\'
 
-let g:peggi_debug = 0
+
+if 0
+	let g:peggi_debug = 0
+	for wikifile in split(globpath('vwtest/', '*.wiki'), '\n')
+		call writefile(split(g:parse_file(s:grammar, wikifile, 'file'), '\\n'), 'vwtest/'.fnamemodify(wikifile, ':t:r').'.html')
+	endfor
+else
+	let g:peggi_debug = 2
+	call writefile(split(g:parse_file(s:grammar, 'in.wiki', 'file'), '\\n'), 'out.html')
+endif
 
 
-for wikifile in split(globpath('vwtest/', '*.wiki'), '\n')
-	call writefile(split(g:parse_file(s:grammar, wikifile, 'file'), '\\n'), 'vwtest/'.fnamemodify(wikifile, ':t:r').'.html')
-endfor
-
-finish
-
-call writefile(split(g:parse_file(s:grammar, 'in.wiki', 'file'), '\\n'), 'out.html')
 
