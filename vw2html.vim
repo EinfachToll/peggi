@@ -17,35 +17,6 @@ fu! g:breakorspace(string)
 endf
 
 
-let g:peggi_additional_state = [-1]
-
-fu! g:Pushindent(element)
-	call add(g:peggi_additional_state, strdisplaywidth(matchstr(a:element, '^\s*'), 0))
-	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
-	return a:element
-endf
-
-fu! g:Popindent(ele)
-	call remove(g:peggi_additional_state, -1)
-	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
-	return a:ele
-endf
-
-fu! g:leqlastindent(spaces)
-	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
-	return strdisplaywidth(a:spaces, 0) <= g:peggi_additional_state[-1] ? '' : g:fail
-endf
-
-fu! g:gtsndlastindent(spaces)
-	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
-	return strdisplaywidth(a:spaces, 0) > g:peggi_additional_state[-2] ? '' : g:fail
-endf
-
-fu! g:gtlastindent(spaces)
-	if g:peggi_debug >= 2 | call append(line('$'), "--------" . string(g:peggi_additional_state)) | endif
-	return strdisplaywidth(a:spaces, 0) > g:peggi_additional_state[-1] ? '' : g:fail
-endf
-
 function! g:checkbox(bulletandcb)
 	let [bullet, cb] = a:bulletandcb
 	if cb != ''
@@ -83,6 +54,11 @@ fu! g:endpre(string)
 	return str . '</pre>'
 endf
 
+fu! g:process_line(string)
+	if a:string =~ g:vimwiki_rxWikiLink
+	endif
+endf
+
 
 
 unlet! s:grammar
@@ -92,10 +68,10 @@ let s:grammar = '
 			\ header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\r/.g:header()
 			\ hline = /-----*\r/.replace("<hr/>")
 			\ paragraph = (table | list | preformatted_text | ordinarytextline)+
-			\ ordinarytextline = !emptyline !header !hline &(g:gtlastindent(/\s*/)) text
+			\ ordinarytextline = !emptyline !header !hline &> text
 			\ text = /[^\r]*/ /\r/.g:breakorspace()
 			\ 
-			\ table = &(g:gtlastindent(/\s*/)) &bar (table_header? table_block).tag("table")
+			\ table = &> &bar (table_header? table_block).tag("table")
 			\ table_header = table_header_line.tag("tr")  (/\r/ table_div /\r/).skip()
 			\ table_block = table_line (/\r/.skip() table_line)*
 			\ table_div = /|[-|]\+|/
@@ -106,20 +82,19 @@ let s:grammar = '
 			\ bar = /|/.skip()
 			\ 
 			\ list = blist | nlist
-			\ blist = &listbullet ((&(g:gtlastindent(/\s*/)) blist_item)+).tag("ul")
-			\ nlist = &listnumber ((&(g:gtlastindent(/\s*/)) nlist_item)+).tag("ol")
-			\ blist_item = (&(listbullet.g:Pushindent()) /\s*/.skip() (listbullet checkbox?).split().g:checkbox() list_item_content).g:Popindent()
-			\ nlist_item = (&(listnumber.g:Pushindent()) /\s*/.skip() (listnumber checkbox?).split().g:checkbox() list_item_content).g:Popindent()
+			\ blist = &listbullet ((&> blist_item)+).tag("ul")
+			\ nlist = &listnumber ((&> nlist_item)+).tag("ol")
+			\ blist_item^ = (listbullet checkbox?).split().g:checkbox() list_item_content
+			\ nlist_item^ = (listnumber checkbox?).split().g:checkbox() list_item_content
 			\ listbullet = /\s*[-*#•]\s\+/
 			\ listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
 			\ list_item_content = text paragraph? (emptyline paragraph.tag("p"))*
 			\ 
-			\ preformatted_text = &(g:gtlastindent(/\s*/)) "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r}}}\s*\r/.g:endpre()
+			\ preformatted_text = &> "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
 			\'
 
-
-if 0
+if 1
 	let g:peggi_debug = 0
 	for wikifile in split(globpath('vwtest/', '*.wiki'), '\n')
 		call writefile(split(g:parse_file(s:grammar, wikifile, 'file'), '\\n'), 'vwtest/'.fnamemodify(wikifile, ':t:r').'.html')

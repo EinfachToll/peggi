@@ -3,10 +3,10 @@ let s:debug = 0
 let s:packrat_enabled = 1
 let s:grammar_cache = {}
 let s:output_to_buffer = 1
+let s:inline_nonterminals = 2
 tabnew
 set nowrap
-
-let g:peggi_additional_state = []
+let s:indent_stack = [-1]
 
 " ------------------------------------------------
 "  pretty print function for arbitrary types:
@@ -53,6 +53,36 @@ fu! s:format(thing, indent)
 	return ls
 endf
 
+fu! s:print_state(thing, ...)
+	let rest = a:0 ? ' --- ' . join(a:000, ' --- ') : ''
+	"let msg = '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest
+	let msg = '> ' . string(a:thing).', Pos: ' . s:pos . rest . ' --- ' . expand('<sfile>')
+	if s:output_to_buffer
+		call append(line('$'), msg)
+	else
+		echom msg
+	endif
+endf
+
+fu! s:print_indentation_stack()
+	let msg = '- indendation stack: '.string(s:indent_stack)
+	if s:output_to_buffer
+		call append(line('$'), msg)
+	else
+		echom msg
+	endif
+endf
+
+function! s:print_result(fu, outcome)
+	if s:debug
+		let msg = '< ' . a:fu . ' ' .string(a:outcome)
+		if s:output_to_buffer
+			call append(line('$'), msg)
+		else
+			echom msg
+		endif
+	endif
+endfunction
 
 " -----------------------------------------------------
 "some transformation functions:
@@ -91,6 +121,11 @@ endfunction
 function! s:split(thing)
 	return a:thing
 endfunction
+
+fu! s:indent_gt_stack(whitespaces)
+	if g:peggi_debug >= 1 | call s:print_indentation_stack() | endif
+	return strdisplaywidth(a:whitespaces, 0) > s:indent_stack[-1] ? a:whitespaces : g:fail
+endf
 
 
 fu! s:trLiteral(string)
@@ -151,7 +186,8 @@ endf
 
 fu! s:trDefinition(list)
 	let nt = s:strip(a:list[0])
-	return [nt, a:list[2]]
+	let is_indentation_nt = (a:list[1] != '')
+	return [nt, is_indentation_nt, a:list[3]]
 endf
 
 fu! s:takeSecond(list)
@@ -173,23 +209,136 @@ fu! s:trTransform(list)
 	return [funk] + good_args
 endf
 
-fu! s:trFunction(list)
-	let funk = a:list[0]
-	let arg = a:list[2]
-	return ['function', [funk, arg]]
+fu! s:trIndentGT(string)
+	return ['regexp', '\s*', ['s:indent_gt_stack']]
 endf
 
 fu! s:appendTransforms(list)
 	return a:list[0] + a:list[1]
 endf
 
-fu! s:makeGrammar(lists)
+fu! s:replace_nts(rule, indentation_nts)
+	if a:rule[0] == 'nonterminal'
+		if index(a:indentation_nts, a:rule[1]) > -1
+			return ['nonterminal_indent'] + a:rule[1:]
+		endif
+		return a:rule
+	elseif a:rule[0] == 'regexp'
+		return a:rule
+	elseif a:rule[0] == 'sequence' || a:rule[0] == 'choice'
+		let result = []
+		for subitem in a:rule[1]
+			call add(result, s:replace_nts(subitem, a:indentation_nts))
+		endfor
+		return [a:rule[0]] + [result] + a:rule[2:]
+	else
+		return [a:rule[0]] + [s:replace_nts(a:rule[1], a:indentation_nts)] + a:rule[2:]
+	endif
+endf
+
+fu! s:makeGrammar(list_of_definitions)
 	let grammar = {}
-	for lst in a:lists
-		let grammar[lst[0]] = lst[1]
+	let s:indentation_nts = []
+	for defi in a:list_of_definitions
+		let grammar[defi[0]] = defi[2]
+		if defi[1]
+			call add(s:indentation_nts, defi[0])
+		endif
+	endfor
+	for key in keys(grammar)
+		let grammar[key] = s:replace_nts(grammar[key], s:indentation_nts)
 	endfor
 	return grammar
 endf
+
+" ------------------------------------------------
+" nonterminal inlining stuff
+
+
+function! s:nts_on_right_side(rule)
+	if a:rule[0] == 'nonterminal'
+		return [a:rule[1]]
+	elseif a:rule[0] == 'regexp' || a:rule[0] == 'nonterminal_indent'
+		return []
+	elseif a:rule[0] == 'sequence' || a:rule[0] == 'choice'
+		let result = []
+		for subitem in a:rule[1]
+			let subitem_references = s:nts_on_right_side(subitem)
+			for reference in subitem_references
+				if index(result, reference) == -1
+					call add(result, reference)
+				endif
+			endfor
+		endfor
+		return result
+	else
+		return s:nts_on_right_side(a:rule[1])
+	endif
+endfunction
+
+function! s:substitute_nt_by_right_side(rule, nt, right_side)
+	if a:rule[0] == 'nonterminal'
+		if a:rule[1] == a:nt
+			return a:right_side + a:rule[2:]
+		endif
+		return a:rule
+	elseif a:rule[0] == 'regexp' || a:rule[0] == 'nonterminal_indent'
+		return a:rule
+	elseif a:rule[0] == 'sequence' || a:rule[0] == 'choice'
+		let result = []
+		for subitem in a:rule[1]
+			call add(result, s:substitute_nt_by_right_side(subitem, a:nt, a:right_side))
+		endfor
+		return [a:rule[0]] + [result] + a:rule[2:]
+	else
+		return [a:rule[0]] + [s:substitute_nt_by_right_side(a:rule[1], a:nt, a:right_side)] + a:rule[2:]
+	endif
+endfunction
+
+
+"optimizes the grammar a bit by replacing nonterminals on the right side of a
+"grammar definition by its right side. Of course, this works only if a NT
+"doesn't reference itself
+function! s:inline_nts(grammar, start)
+	let new_grammar = a:grammar
+	"call s:pprint(a:grammar)
+	"for every NT, collect all NTs it references
+	let nt_references = {}
+	for nt in keys(a:grammar)
+		let nt_references[nt] = s:nts_on_right_side(a:grammar[nt])
+	endfor
+	for nt in keys(a:grammar)
+		if nt == a:start || index(s:indentation_nts, nt) > -1 | continue | endif
+		let cycle_detected = 0
+		let references = nt_references[nt]
+		if !empty(references)
+			let idx = 0
+			while 1
+				if references[idx] == nt
+					let cycle_detected = 1
+					break
+				endif
+				for subnt in nt_references[references[idx]]
+					if index(references, subnt) == -1
+						call add(references, subnt)
+					endif
+				endfor
+				if idx == len(references) - 1
+					break
+				endif
+				let idx += 1
+			endwhile
+		endif
+		if cycle_detected | continue | endif
+
+		let right_side = remove(new_grammar, nt)
+		for rule in keys(new_grammar)
+			let new_grammar[rule] = s:substitute_nt_by_right_side(new_grammar[rule], nt, right_side)
+		endfor
+	endfor
+
+	return new_grammar
+endfunction
 
 
 " ------------------------------------------------
@@ -198,18 +347,19 @@ endf
 
 let s:peggi_grammar = {
 \ 'peggrammar' : ['oneormore', ['nonterminal', 'pegdefinition'], ['s:makeGrammar']],
-\ 'pegdefinition' : ['sequence', [['nonterminal', 'pegidentifier'], ['nonterminal','pegassignment'], ['nonterminal','pegexpression']], ['s:trDefinition']],
+\ 'pegdefinition' : ['sequence', [['nonterminal', 'pegidentifier'], ['optional', ['nonterminal','pegindentnt']], ['nonterminal','pegassignment'], ['nonterminal','pegexpression']], ['s:trDefinition']],
 \ 'pegexpression' : ['sequence', [['nonterminal','pegsequence'], ['zeroormore',['sequence',[['regexp','\s*|\s*'], ['nonterminal','pegsequence']]]]], ['s:trChoice']],
 \ 'pegsequence' : ['zeroormore', ['nonterminal', 'pegprefix'], ['s:trSequence']],
 \ 'pegprefix' : ['sequence', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], ['s:trPrefix']],
 \ 'pegsuffix' : ['sequence', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*']]]]], ['s:trSuffix']],
-\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['nonterminal', 'pegfunction'], ['sequence', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegassignment']]], ['s:trNonterminal']], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:takeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:appendTransforms']],
+\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['nonterminal', 'pegindentgreater'], ['sequence', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegindentnt']], ['not', ['nonterminal','pegassignment']]], ['s:trNonterminal']], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:takeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:appendTransforms']],
 \ 'pegtransform' : ['sequence', [['regexp', '\.'], ['regexp', '[a-zA-Z0-9_:]\+'], ['regexp', '('], ['zeroormore', ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*,\?\s*']], ['regexp', '\s*)']], ['s:trTransform']],
-\ 'pegfunction' : ['sequence', [['regexp', '[sg]:[a-zA-Z0-9_]\+'], ['regexp', '('], ['nonterminal', 'pegexpression'], ['regexp', '\s*)']], ['s:trFunction']],
 \ 'pegidentifier' : ['regexp', '\s*[a-zA-Z_][a-zA-Z0-9_]*\s*', ['s:strip']],
 \ 'pegregexp' : ['regexp', '\s*/\%(\\.\|[^/]\)*/\s*', ['s:trRegexp']],
 \ 'pegliteral' : ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', ['s:trLiteral']],
-\ 'pegassignment' : ['regexp', '\s*=']
+\ 'pegassignment' : ['regexp', '\s*='],
+\ 'pegindentnt' : ['regexp', '\s*\^'],
+\ 'pegindentgreater' : ['regexp', '\s*>', ['s:trIndentGT']]
 \ }
 
 
@@ -217,27 +367,6 @@ let s:peggi_grammar = {
 
 
 
-fu! s:print_state(thing, ...)
-	let rest = a:0 ? ' --- ' . join(a:000, ' --- ') : ''
-	"let msg = '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest
-	let msg = '> ' . string(a:thing).', Pos: ' . s:pos . rest . ' --- ' . expand('<sfile>')
-	if s:output_to_buffer
-		call append(line('$'), msg)
-	else
-		echom msg
-	endif
-endf
-
-function! s:print_result(fu, outcome)
-	if s:debug
-		let msg = '< ' . a:fu . ' ' .string(a:outcome)
-		if s:output_to_buffer
-			call append(line('$'), msg)
-		else
-			echom msg
-		endif
-	endif
-endfunction
 
 
 
@@ -263,7 +392,7 @@ endfunction
 "Returns: the matched string or Fail
 fu! s:parse_regexp(thing)
 	if s:debug | call s:print_state(a:thing, strpart(s:string, s:pos, 50)) | endif
-	let cache_key = s:pos . 'regexp' . a:thing[1] . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'regexp' . a:thing[1] . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -278,31 +407,10 @@ fu! s:parse_regexp(thing)
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 
 	call s:print_result('regexp', outcome)
-	return outcome
-endf
-
-"Tries to match the arg (without consuming) and applies the given function on
-"the result
-fu! s:parse_function(thing)
-	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'function' . string(a:thing[1]) . string(g:peggi_additional_state)
-	let outcome = s:query_cache(cache_key)
-	if s:cache_fail(outcome)
-
-		let old_pos = s:pos
-		let arg = s:parse_{a:thing[1][1][0]}(a:thing[1][1])
-		let s:pos = old_pos
-		let result = s:parse_regexp(['regexp', call(a:thing[1][0], [arg])])
-
-		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
-	endif
-
-	call s:print_result('function', outcome)
 	return outcome
 endf
 
@@ -310,7 +418,7 @@ endf
 "Returns: a list of whatever the subitems return or Fail (if one of them fails)
 fu! s:parse_sequence(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'sequence' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'sequence' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -335,16 +443,36 @@ fu! s:parse_sequence(thing)
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('sequence', outcome)
+	return outcome
+endf
+
+"like parse_nonterminal, but don't cache the output and push the current
+"indentation on a stack when beginning the parsing and pop it when done
+fu! s:parse_nonterminal_indent(thing)
+	if s:debug | call s:print_state(a:thing) | endif
+
+	call add(s:indent_stack, strdisplaywidth(matchstr(s:string, '^\s*', s:pos), 0))
+	if g:peggi_debug >= 1 | call s:print_indentation_stack() | endif
+
+	let thing = s:grammar[a:thing[1]]
+	let result = s:parse_{thing[0]}(thing)
+
+	let outcome = s:apply_transformations(result, a:thing[2:])
+
+	call remove(s:indent_stack, -1)
+	if g:peggi_debug >= 1 | call s:print_indentation_stack() | endif
+
+	call s:print_result('indent_nonterminal: '.string(a:thing[1]), outcome)
 	return outcome
 endf
 
 "Returns: whatever the element behind the nonterminal returns
 fu! s:parse_nonterminal(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'nonterminal' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'nonterminal' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = a:thing[1] == 'listbullet' || a:thing[1] == 'listnumber' ? s:cache_fail : s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -352,7 +480,7 @@ fu! s:parse_nonterminal(thing)
 		let result = s:parse_{thing[0]}(thing)
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('nonterminal: '.string(a:thing[1]), outcome)
 	return outcome
@@ -361,7 +489,7 @@ endf
 "Returns: whatever the first matching subelement returns, or Fail if all items fail
 fu! s:parse_choice(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'choice' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'choice' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -380,7 +508,7 @@ fu! s:parse_choice(thing)
 		endfor
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('choice', outcome)
 	return outcome
@@ -389,7 +517,7 @@ endf
 "Returns: whatever the subelement returns, or '' if it fails
 fu! s:parse_optional(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'optional' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'optional' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -401,7 +529,7 @@ fu! s:parse_optional(thing)
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('optional', outcome)
 	return outcome
@@ -410,7 +538,7 @@ endf
 "Returns: a (possibliy empty) list of whatever the subitem returns, as long as it matches
 fu! s:parse_zeroormore(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'zeroormore' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'zeroormore' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -432,7 +560,7 @@ fu! s:parse_zeroormore(thing)
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('zeroormore', outcome)
 	return outcome
@@ -441,7 +569,7 @@ endf
 "Returns: a list of whatever the subitem returns, as long as it matches, or Fail if doesn't match
 fu! s:parse_oneormore(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'oneormore' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'oneormore' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -469,7 +597,7 @@ fu! s:parse_oneormore(thing)
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('oneormore', outcome)
 	return outcome
@@ -479,7 +607,7 @@ endf
 "does not consume any chars of the parsed string
 fu! s:parse_and(thing)
 	if s:debug | call s:print_state(a:thing) | endif
-	let cache_key = s:pos . 'and' . string(a:thing[1]) . string(g:peggi_additional_state)
+	let cache_key = s:pos . 'and' . string(a:thing[1]) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
@@ -493,7 +621,7 @@ fu! s:parse_and(thing)
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
-		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, g:peggi_additional_state] | endif
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
 	call s:print_result('and', outcome)
 	return outcome
@@ -532,7 +660,7 @@ fu! s:query_cache(key)
 					echom msg
 				endif
 			endif
-			let g:peggi_additional_state = cache_content[2]
+			let s:indent_stack = cache_content[2]
 			return cache_content[1]
 		endif
 	endif
@@ -545,7 +673,7 @@ fu! s:apply_transformations(result, transformations)
 	let result = a:result
 	let res = ''
 	for funk in a:transformations
-		if funk[0] =~ '[gs]:\l' && s:isfail(result)
+		if s:isfail(result)
 			return g:fail
 		endif
 		unlet res
@@ -561,7 +689,7 @@ fu! g:parse_begin(grammar, string, start)
 	unlet! s:grammar
 
 	if has_key(s:grammar_cache, a:grammar)
-		let s:users_grammar = s:grammar_cache[a:grammar]
+		let users_grammar = s:grammar_cache[a:grammar]
 	else
 		let s:debug = 0
 		let s:cache = {}
@@ -569,13 +697,16 @@ fu! g:parse_begin(grammar, string, start)
 		let s:grammar = s:peggi_grammar
 		let s:concat_seqs = 0
 		let s:string = a:grammar
-		let s:users_grammar = s:parse_nonterminal(['nonterminal', 'peggrammar'])
-		let s:grammar_cache[a:grammar] = s:users_grammar
+		let users_grammar = s:parse_nonterminal(['nonterminal', 'peggrammar'])
+		if s:inline_nonterminals == 1 || (s:inline_nonterminals == 2 && (!exists('g:peggi_debug') || g:peggi_debug == 0))
+			let users_grammar = s:inline_nts(users_grammar, a:start)
+		endif
+		let s:grammar_cache[a:grammar] = users_grammar
 	endif
 
 	let s:packrat_enabled = 1
 	if exists('g:peggi_debug') && g:peggi_debug >= 2
-		call s:pprint(s:users_grammar)
+		call s:pprint(users_grammar)
 	endif
 	if exists('g:peggi_debug') && g:peggi_debug >= 1
 		let s:debug = 1
@@ -584,7 +715,7 @@ fu! g:parse_begin(grammar, string, start)
 
 	let s:cache = {}
 	let s:pos = 0
-	let s:grammar = s:users_grammar
+	let s:grammar = users_grammar
 	let s:concat_seqs = 1
 	let s:string = a:string
 
