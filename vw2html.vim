@@ -89,7 +89,7 @@ let s:grammar = '
 			\ listbullet = /\s*[-*#•]\s\+/
 			\ listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
-			\ list_item_content = text paragraph? (emptyline paragraph.tag("p"))*
+			\ list_item_content = text (&> paragraph)? (emptyline paragraph.tag("p"))*
 			\ 
 			\ preformatted_text = &> "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
 			\'
