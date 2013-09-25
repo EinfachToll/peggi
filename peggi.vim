@@ -2,10 +2,7 @@ let s:concat_seqs = 1
 let s:debug = 0
 let s:packrat_enabled = 1
 let s:grammar_cache = {}
-let s:output_to_buffer = 1
 let s:inline_nonterminals = 2
-tabnew
-set nowrap
 let s:indent_stack = [-1]
 
 " ------------------------------------------------
@@ -17,11 +14,7 @@ fu! s:pprint(thing)
 	for line in f
 		unlet bla
 		let bla = line
-		if s:output_to_buffer
-			call append(line('$'), string(bla))
-		else
-			echom string(bla)
-		endif
+		call append(line('$'), string(bla))
 	endfor
 endf
 
@@ -57,30 +50,18 @@ fu! s:print_state(thing, ...)
 	let rest = a:0 ? ' --- ' . join(a:000, ' --- ') : ''
 	"let msg = '> '.a:function . ', '.string(a:arg).', Pos: ' . s:pos . rest
 	let msg = '> ' . string(a:thing).', Pos: ' . s:pos . rest . ' --- ' . expand('<sfile>')
-	if s:output_to_buffer
-		call append(line('$'), msg)
-	else
-		echom msg
-	endif
+	call append(line('$'), msg)
 endf
 
 fu! s:print_indentation_stack()
 	let msg = '- indendation stack: '.string(s:indent_stack)
-	if s:output_to_buffer
-		call append(line('$'), msg)
-	else
-		echom msg
-	endif
+	call append(line('$'), msg)
 endf
 
 function! s:print_result(fu, outcome)
 	if s:debug
 		let msg = '< ' . a:fu . ' ' .string(a:outcome)
-		if s:output_to_buffer
-			call append(line('$'), msg)
-		else
-			echom msg
-		endif
+		call append(line('$'), msg)
 	endif
 endfunction
 
@@ -654,11 +635,7 @@ fu! s:query_cache(key)
 			let s:pos = cache_content[0]
 			if s:debug
 				let msg = "Yayyyyyyyyy, cache hit! -> " . a:key . " ----- " . string(cache_content)
-				if s:output_to_buffer
-					call append(line('$'), msg)
-				else
-					echom msg
-				endif
+				call append(line('$'), msg)
 			endif
 			let s:indent_stack = cache_content[2]
 			return cache_content[1]
@@ -705,11 +682,16 @@ fu! g:parse_begin(grammar, string, start)
 	endif
 
 	let s:packrat_enabled = 1
-	if exists('g:peggi_debug') && g:peggi_debug >= 2
-		call s:pprint(users_grammar)
-	endif
 	if exists('g:peggi_debug') && g:peggi_debug >= 1
 		let s:debug = 1
+		"XXX hack
+		let vimwiki_list = b:vimwiki_list
+		tabnew
+		let b:vimwiki_list = vimwiki_list
+		set nowrap
+	endif
+	if exists('g:peggi_debug') && g:peggi_debug >= 2
+		call s:pprint(users_grammar)
 	endif
 	"return
 

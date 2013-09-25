@@ -1,9 +1,7 @@
 set maxfuncdepth=1000000
 
-so peggi.vim
-
 fu! g:addhtmlstuff(content)
-	return '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n<html>\n <head>\n <link rel="Stylesheet" type="text/css" href="style.css">\n <title>Testwiki</title>\n <meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n </head>\n <body>\n' . a:content . '\n</body>\n</html>'
+	return '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n<html>\n <head>\n <link rel="Stylesheet" type="text/css" href="'.s:css_file.'">\n <title>'.s:filename_without_ext.'</title>\n <meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n </head>\n <body>\n' . a:content . '\n</body>\n</html>'
 endf
 
 fu! g:header(string)
@@ -55,8 +53,22 @@ fu! g:endpre(string)
 endf
 
 fu! g:process_line(string)
-	if a:string =~ g:vimwiki_rxWikiLink
+	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxWikiLink . '\)\(.*\)')
+	if !empty(list)
+		let url = matchstr(list[2], g:vimwiki_rxWikiLinkMatchUrl)
+		let descr = matchstr(list[2], g:vimwiki_rxWikiLinkMatchDescr)
+		let descr = (substitute(descr,'^\s*\(.*\)\s*$','\1','') != '' ? descr : url)
+		let [idx, scheme, path, subdir, lnk, ext, url] = vimwiki#base#resolve_scheme(url, 1)
+		let link = vimwiki#html#linkify_link(url, descr)
+
+		return g:process_line(list[1]) . link . g:process_wikiincl(list[3])
+	else
+		return a:string
 	endif
+endf
+
+fu! g:process_wikiincl(string)
+	return a:string
 endf
 
 
@@ -69,7 +81,7 @@ let s:grammar = '
 			\ hline = /-----*\r/.replace("<hr/>")
 			\ paragraph = (table | list | preformatted_text | ordinarytextline)+
 			\ ordinarytextline = !emptyline !header !hline &> text
-			\ text = /[^\r]*/ /\r/.g:breakorspace()
+			\ text = /[^\r]*/.g:process_line() /\r/.g:breakorspace()
 			\ 
 			\ table = &> &bar (table_header? table_block).tag("table")
 			\ table_header = table_header_line.tag("tr")  (/\r/ table_div /\r/).skip()
@@ -94,15 +106,15 @@ let s:grammar = '
 			\ preformatted_text = &> "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
 			\'
 
-if 1
-	let g:peggi_debug = 0
-	for wikifile in split(globpath('vwtest/', '*.wiki'), '\n')
-		call writefile(split(g:parse_file(s:grammar, wikifile, 'file'), '\\n'), 'vwtest/'.fnamemodify(wikifile, ':t:r').'.html')
-	endfor
-else
-	let g:peggi_debug = 2
-	call writefile(split(g:parse_file(s:grammar, 'in.wiki', 'file'), '\\n'), 'out.html')
-endif
+
+let g:peggi_debug = 2 "XXX currently, this is reset to 0 when VimwikiAll2HTML is called
+
+fu! g:vw2html(force, syntax, ext, output_dir, input_file, css_file, tmpl_path, tmpl_default, tmpl_ext, root_path)
+	let s:filename_without_ext = fnamemodify(a:input_file, ':t:r')
+	let s:css_file = a:css_file
+	let output_path = a:output_dir . '/' . s:filename_without_ext .'.html'
+	call writefile(split(g:parse_file(s:grammar, a:input_file, 'file'), '\\n'), output_path)
+endf
 
 
 
