@@ -7,7 +7,8 @@ endf
 fu! g:header(string)
 	let res = matchlist(a:string, '\s*\(=\{1,6}\)\([^=].\{-}[^=]\)\1\s*\r')
 	let level = strlen(res[1])
-	return '<h'.level.'>'.res[2].'</h'.level.'>'
+	let center = a:string =~ '^\s' ? ' class="justcenter"' : ''
+	return '<h'.level.center.'>'.res[2].'</h'.level.'>'
 endf
 
 fu! g:breakorspace(string)
@@ -15,28 +16,17 @@ fu! g:breakorspace(string)
 endf
 
 
-function! g:checkbox(bulletandcb)
+function! g:checkbox(bulletandcb, type)
 	let [bullet, cb] = a:bulletandcb
 	if cb != ''
 		let idx = index([' ', '.', 'o', 'O', 'X'], cb)
 		let cb = ' class="done'.idx.'"'
 	endif
-	let type = ''
-	if bullet =~ '\d\+'
-		let type = '1'
-	elseif bullet =~# '[ivxlcdm]\+)'
-		let type = 'i'
-	elseif bullet =~# '[IVXLCDM]\+)'
-		let type = 'I'
-	elseif bullet =~# '\u'
-		let type = 'A'
-	elseif bullet =~# '\l'
-		let type = 'a'
+	let typeattr = ''
+	if a:type != '-'
+		let typeattr = ' type="'.a:type.'"'
 	endif
-	if type != ''
-		let type = ' type="'.type.'"'
-	endif
-	return '<li' . type . cb . '>'
+	return '<li' . typeattr . cb . '>'
 endfunction
 
 fu! g:startpre(class)
@@ -50,6 +40,27 @@ endf
 fu! g:endpre(string)
 	let str = substitute(a:string, '\r\s*}}}\s*\r$', '', '')
 	return str . '</pre>'
+endf
+
+fu! g:startmathblock(environment)
+	if a:environment =~ '^\s*%.*%\s*$'
+		"the current environment is saved in a variable for the close function
+		"this is safe, because mathblocks can't be nested
+		let s:cur_env = substitute(a:environment, '^\s*%\s*\(.*\)%$', '\1', '')
+		return '\begin{' . s:cur_env . '}'
+	else
+		let s:cur_env = ''
+		return '\['
+	endif
+endf
+
+fu! g:endmathblock(string)
+	let str = substitute(a:string, '\r\s*}}$\s*\r$', '', '')
+	if s:cur_env != ''
+		return str . '\end{' . s:cur_env . '}'
+	else
+		return str . '\]'
+	endif
 endf
 
 fu! g:process_line(string)
@@ -104,9 +115,9 @@ fu! g:process_weblink(string)
 		let url = matchstr(str, g:vimwiki_rxWeblinkMatchUrl)
 		let descr = matchstr(str, g:vimwiki_rxWeblinkMatchDescr)
 		let line = vimwiki#html#linkify_link(url, descr)
-		return g:process_weblink(list[1]) . line . g:process_italic(list[3])
+		return g:process_weblink(list[1]) . line . g:process_code(list[3])
 	else
-		return g:process_italic(a:string)
+		return g:process_code(a:string)
 	endif
 endf
 
@@ -119,6 +130,27 @@ function! s:safe_html_tags(line) "{{{
   let line = substitute(line,'>','\&gt;', 'g')
   return line
 endfunction "}}}
+
+fu! g:process_code(string)
+	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxCode . '\)\(.*\)')
+	if !empty(list)
+		let str = '<code>'.s:safe_html_tags(s:mid(list[2], 1)).'</code>'
+		return g:process_code(list[1]) . str . g:process_eqin(list[3])
+	else
+		return g:process_eqin(a:string)
+	endif
+endf
+
+fu! g:process_eqin(string)
+	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxEqIn . '\)\(.*\)')
+	if !empty(list)
+		" mathJAX wants \( \) for inline maths
+		let str = '\('.s:mid(list[2], 1).'\)'
+		return g:process_eqin(list[1]) . str . g:process_italic(list[3])
+	else
+		return g:process_italic(a:string)
+	endif
+endf
 
 fu! g:process_italic(string)
 	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxItalic . '\)\(.*\)')
@@ -174,28 +206,7 @@ fu! g:process_sub(string)
 	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxSubScript . '\)\(.*\)')
 	if !empty(list)
 		let str = '<sub><small>'.s:mid(list[2], 2).'</small></sub>'
-		return g:process_sub(list[1]) . str . g:process_code(list[3])
-	else
-		return g:process_code(a:string)
-	endif
-endf
-
-fu! g:process_code(string)
-	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxCode . '\)\(.*\)')
-	if !empty(list)
-		let str = '<code>'.s:safe_html_tags(s:mid(list[2], 1)).'</code>'
-		return g:process_code(list[1]) . str . g:process_eqin(list[3])
-	else
-		return g:process_eqin(a:string)
-	endif
-endf
-
-fu! g:process_eqin(string)
-	let list = matchlist(a:string, '\(.*\)\(' . g:vimwiki_rxEqIn . '\)\(.*\)')
-	if !empty(list)
-		" mathJAX wants \( \) for inline maths
-		let str = '\('.s:mid(list[2], 1).'\)'
-		return g:process_eqin(list[1]) . str . list[3]
+		return g:process_sub(list[1]) . str . list[3]
 	else
 		return a:string
 	endif
@@ -205,9 +216,9 @@ unlet! s:grammar
 let s:grammar = '
 			\ file = ((emptyline | header | hline | paragraph.tag("p"))*).g:addhtmlstuff()
 			\ emptyline = /\s*\r/.skip()
-			\ header = /\s*\(=\{1,6}\)[^=].\{-}[^=]\1\s*\r/.g:header()
+			\ header = /\s*\(=\{1,6}\)[^=][^\r]\{-}[^=]\1\s*\r/.g:header()
 			\ hline = /-----*\r/.replace("<hr/>")
-			\ paragraph = (table | list | preformatted_text | ordinarytextline)+
+			\ paragraph = (table | list | preformatted_text | math_block | deflist | ordinarytextline)+
 			\ ordinarytextline = !emptyline !header !hline &> text
 			\ text = /[^\r]*/.g:process_line() /\r/.g:breakorspace()
 			\ 
@@ -221,17 +232,40 @@ let s:grammar = '
 			\ header_cell = /[^\r|]\+/.strip().tag("th")
 			\ bar = /|/.skip()
 			\ 
-			\ list = blist | nlist
-			\ blist = &listbullet ((&> blist_item)+).tag("ul")
-			\ nlist = &listnumber ((&> nlist_item)+).tag("ol")
-			\ blist_item^ = (listbullet checkbox?).split().g:checkbox() list_item_content
-			\ nlist_item^ = (listnumber checkbox?).split().g:checkbox() list_item_content
-			\ listbullet = /\s*[-*#•]\s\+/
-			\ listnumber = /\s*\(\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
+			\ list = &liststart (blist | rlist | Rlist | alist | Alist | nlist)
+			\ blist = &bullet ((&> blist_item)+).tag("ul")
+			\ rlist = &rstartnumber ((&> rlist_item)+).tag("ol")
+			\ Rlist = &Rstartnumber ((&> Rlist_item)+).tag("ol")
+			\ alist = &alphanumber ((&> alist_item)+).tag("ol")
+			\ Alist = &Alphanumber ((&> Alist_item)+).tag("ol")
+			\ nlist = &number ((&> nlist_item)+).tag("ol")
+			\ blist_item^ = (bullet checkbox?).split().g:checkbox("-") list_item_content
+			\ rlist_item^ = (rnumber checkbox?).split().g:checkbox("i") list_item_content
+			\ Rlist_item^ = (Rnumber checkbox?).split().g:checkbox("I") list_item_content
+			\ alist_item^ = (alphanumber checkbox?).split().g:checkbox("a") list_item_content
+			\ Alist_item^ = (Alphanumber checkbox?).split().g:checkbox("A") list_item_content
+			\ nlist_item^ = (number checkbox?).split().g:checkbox("1") list_item_content
+			\ bullet = /\s*[-*#•]\s\+/
+			\ rstartnumber = /\s*i\{1,3})\s\+/
+			\ Rstartnumber = /\s*I\{1,3})\s\+/
+			\ rnumber = /\s*[ivxlcdm]\+)\s\+/
+			\ Rnumber = /\s*[IVXLCDM]\+)\s\+/
+			\ alphanumber = /\s*\l\{1,2})\s\+/
+			\ Alphanumber = /\s*\u\{1,2})\s\+/
+			\ number = /\s*\d\+[.)]\s\+/
+			\ liststart = /\s*\([-*#•]\|\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
 			\ list_item_content = text (&> paragraph)? (emptyline paragraph.tag("p"))*
 			\ 
 			\ preformatted_text = &> "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
+			\ math_block = &> "{{$".skip() /[^\r]*/.g:startmathblock() /\r/.skip() /\_.\{-}\r\s*}}\$\s*\r/.g:endmathblock()
+			\ 
+			\ deflist = (&> deflist_item+).tag("dl")
+			\ deflist_item^ = term (/\s\+/ short_definition)? /\r/.skip() (&>= long_definition)*
+			\ term = /[^\r:]*[[:alnum:]][^\r:]*/.tag("dt") "::".skip()
+			\ short_definition = /[^\r]\+/.tag("dd")
+			\ long_definition^ = /::\s\+/.skip() list_item_content.tag("dd")
+			\
 			\'
 
 
