@@ -273,7 +273,7 @@ endfunction
 
 function! s:substitute_nt_by_right_side(rule, nt, right_side)
 	if a:rule[0] == 'nonterminal'
-		if a:rule[1] == a:nt
+		if a:rule[1] ==# a:nt
 			return a:right_side + a:rule[2:]
 		endif
 		return a:rule
@@ -303,13 +303,13 @@ function! s:inline_nts(grammar, start)
 		let nt_references[nt] = s:nts_on_right_side(a:grammar[nt])
 	endfor
 	for nt in keys(a:grammar)
-		if nt == a:start || index(s:indentation_nts, nt) > -1 | continue | endif
+		if nt ==# a:start || index(s:indentation_nts, nt) > -1 | continue | endif
 		let cycle_detected = 0
 		let references = nt_references[nt]
 		if !empty(references)
 			let idx = 0
 			while 1
-				if references[idx] == nt
+				if references[idx] ==# nt
 					let cycle_detected = 1
 					break
 				endif
@@ -407,7 +407,7 @@ fu! s:parse_regexp(thing)
 	let outcome = s:query_cache(cache_key)
 	if s:cache_fail(outcome)
 
-		let npos = matchend(s:string, '^'.a:thing[1], s:pos)
+		let npos = matchend(s:string, '\C^'.a:thing[1], s:pos)
 		if npos == s:pos
 			let result = ''
 		elseif npos != -1

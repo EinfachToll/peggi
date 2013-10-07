@@ -268,8 +268,7 @@ let s:grammar = '
 			\
 			\'
 
-
-let g:peggi_debug = 2 "XXX currently, this is reset to 0 when VimwikiAll2HTML is called
+let g:peggi_debug = 0
 
 fu! g:vw2html(force, syntax, ext, output_dir, input_file, css_file, tmpl_path, tmpl_default, tmpl_ext, root_path)
 	let s:filename_without_ext = fnamemodify(a:input_file, ':t:r')
