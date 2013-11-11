@@ -212,25 +212,76 @@ fu! g:process_sub(string)
 	endif
 endf
 
+fu! g:make_table(cells)
+	function! s:makespaninfolist(length)
+		let list = []
+		for i in range(a:length)
+			call add(list, [1,1])
+		endfor
+		return list
+	endfunction
+	
+	let header_list = a:cells[0]
+	let matrix_body = reverse(a:cells[1])
+
+	let result = ['</table>']
+	let spaninfo = s:makespaninfolist(len(matrix_body[0]))
+	for line in matrix_body
+		let old_spaninfo = spaninfo
+		let spaninfo = s:makespaninfolist(len(line))
+		for idx in range(len(spaninfo))
+			let spaninfo[idx][0] = len(old_spaninfo) > idx ? old_spaninfo[idx][0] : 1
+		endfor
+
+		call add(result, '</tr>')
+		for idx in range(len(line)-1, 0, -1)
+			let cell = line[idx]
+			if cell =~ '^\s*>\s*'
+				if idx > 0
+					let spaninfo[idx-1][1] = spaninfo[idx][1] + 1
+				else
+					call add(result, '<td></td>')
+				endif
+			elseif cell =~ '^\s*\\\/\s*'
+				let spaninfo[idx][0] += 1
+			else
+				let htmlspaninfo = ''
+				if spaninfo[idx][1] > 1
+					let htmlspaninfo .= ' colspan="' . spaninfo[idx][1] . '"'
+				endif
+				if spaninfo[idx][0] > 1
+					let htmlspaninfo .= ' rowspan="' . spaninfo[idx][0] . '"'
+					let spaninfo[idx][0] = 1
+				endif
+				call add(result, '<td' . htmlspaninfo . '>'.g:process_line(cell).'</td>')
+			endif
+		endfor
+		call add(result, '<tr>')
+	endfor
+	call add(result, '<table>')
+	return join(reverse(result), '')
+endf
+
 unlet! s:grammar
 let s:grammar = '
-			\ file = ((emptyline | header | hline | paragraph.tag("p"))*).g:addhtmlstuff()
+			\ file = ((emptyline | header | hline | paragraph.tag("p"))°).g:addhtmlstuff()
 			\ emptyline = /\s*\r/.skip()
 			\ header = /\s*\(=\{1,6}\)[^=][^\r]\{-}[^=]\1\s*\r/.g:header()
 			\ hline = /-----*\r/.replace("<hr/>")
-			\ paragraph = (table | list | preformatted_text | math_block | deflist | ordinarytextline)+
+			\ paragraph = (table | list | preformatted_text | math_block | deflist | commentline | ordinarytextline)+
 			\ ordinarytextline = !emptyline !header !hline &> text
+			\ commentline = /%%[^\r]*\r/.skip()
 			\ text = /[^\r]*/.g:process_line() /\r/.g:breakorspace()
 			\ 
-			\ table = &> &bar (table_header? table_block).tag("table")
-			\ table_header = table_header_line.tag("tr")  (/\r/ table_div /\r/).skip()
-			\ table_block = table_line (/\r/.skip() table_line)*
-			\ table_div = /|[-|]\+|/
-			\ table_header_line = bar (header_cell bar)+
-			\ table_line = (bar (body_cell bar)+).tag("tr")
-			\ body_cell = /[^\r|]\+/.strip().tag("td")
-			\ header_cell = /[^\r|]\+/.strip().tag("th")
-			\ bar = /|/.skip()
+			\ table = &> &bar (table_header? , table_block).g:make_table()						{ [''/[string,…], block] -> string }
+			\ table_header = (table_header_line , (/\r/ table_div /\r/).skip()).take("0")		{ [string, …] }
+			\ table_block = (table_line , (/\r/.skip() , table_line).take("1")*).insertfirst()	{ [[string, …], … ] }
+			\ table_div = /|[-|]\+|/															{ string }
+			\ table_header_line = (bar , (header_cell bar)#).take("1")							{ [string, …] }
+			\ table_line = (bar , (body_cell bar)#).take("1")									{ [string, …] }
+			\ body_cell = /[^\r|]\+/.strip()													{ string }
+			\ header_cell = /[^\r|]\+/.strip()													{ string }
+			\ bar = /|/.skip()																	{ string }
 			\ 
 			\ list = &liststart (blist | rlist | Rlist | alist | Alist | nlist)
 			\ blist = &bullet ((&> blist_item)+).tag("ul")
@@ -239,12 +290,12 @@ let s:grammar = '
 			\ alist = &alphanumber ((&> alist_item)+).tag("ol")
 			\ Alist = &Alphanumber ((&> Alist_item)+).tag("ol")
 			\ nlist = &number ((&> nlist_item)+).tag("ol")
-			\ blist_item^ = (bullet checkbox?).split().g:checkbox("-") list_item_content
-			\ rlist_item^ = (rnumber checkbox?).split().g:checkbox("i") list_item_content
-			\ Rlist_item^ = (Rnumber checkbox?).split().g:checkbox("I") list_item_content
-			\ alist_item^ = (alphanumber checkbox?).split().g:checkbox("a") list_item_content
-			\ Alist_item^ = (Alphanumber checkbox?).split().g:checkbox("A") list_item_content
-			\ nlist_item^ = (number checkbox?).split().g:checkbox("1") list_item_content
+			\ blist_item^ = (bullet , checkbox?).g:checkbox("-") list_item_content
+			\ rlist_item^ = (rnumber , checkbox?).g:checkbox("i") list_item_content
+			\ Rlist_item^ = (Rnumber , checkbox?).g:checkbox("I") list_item_content
+			\ alist_item^ = (alphanumber , checkbox?).g:checkbox("a") list_item_content
+			\ Alist_item^ = (Alphanumber , checkbox?).g:checkbox("A") list_item_content
+			\ nlist_item^ = (number , checkbox?).g:checkbox("1") list_item_content
 			\ bullet = /\s*[-*#•]\s\+/
 			\ rstartnumber = /\s*i\{1,3})\s\+/
 			\ Rstartnumber = /\s*I\{1,3})\s\+/
@@ -255,18 +306,19 @@ let s:grammar = '
 			\ number = /\s*\d\+[.)]\s\+/
 			\ liststart = /\s*\([-*#•]\|\d\+\.\|\d\+)\|[ivxlcdm]\+)\|[IVXLCDM]\+)\|\l\{1,2})\|\u\{1,2})\)\s\+/
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
-			\ list_item_content = text (&> paragraph)? (emptyline paragraph.tag("p"))*
+			\ list_item_content = text (&> paragraph)? (emptyline paragraph.tag("p"))°
 			\ 
 			\ preformatted_text = &> "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
 			\ math_block = &> "{{$".skip() /[^\r]*/.g:startmathblock() /\r/.skip() /\_.\{-}\r\s*}}\$\s*\r/.g:endmathblock()
 			\ 
 			\ deflist = (&> deflist_item+).tag("dl")
-			\ deflist_item^ = term (/\s\+/ short_definition)? /\r/.skip() (&>= long_definition)*
+			\ deflist_item^ = term (/\s\+/ short_definition)? /\r/.skip() (&>= long_definition)°
 			\ term = /[^\r:]*[[:alnum:]][^\r:]*/.tag("dt") "::".skip()
 			\ short_definition = /[^\r]\+/.tag("dd")
 			\ long_definition^ = /::\s\+/.skip() list_item_content.tag("dd")
 			\
 			\'
+
 
 let g:peggi_debug = 0
 

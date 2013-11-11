@@ -1,4 +1,3 @@
-let s:concat_seqs = 1
 let s:debug = 0
 let s:packrat_enabled = 1
 let s:grammar_cache = {}
@@ -103,6 +102,17 @@ function! s:skip(string)
 	return ''
 endfunction
 
+function! s:take(list, string)
+	let n = eval(a:string)
+	return a:list[n]
+endfunction
+
+function! s:insertfirst(list)
+	let first_thing = a:list[0]
+	let restlist = a:list[1]
+	return [first_thing] + restlist
+endfunction
+
 function! s:split(thing)
 	return a:thing
 endfunction
@@ -134,8 +144,8 @@ fu! s:trRegexp(string)
 	return ['regexp', str]
 endf
 
-fu! s:trNonterminal(list)
-	let str = s:strip(a:list[0])
+fu! s:trNonterminal(string)
+	let str = s:strip(a:string)
 	return ['nonterminal', str]
 endf
 
@@ -143,8 +153,10 @@ fu! s:trSuffix(list)
 	let suffix = s:strip(a:list[1])
 	let thing = a:list[0]
 	if suffix == '?' | return ['optional', thing] | endif
-	if suffix == '+' | return ['oneormore', thing] | endif
-	if suffix == '*' | return ['zeroormore', thing] | endif
+	if suffix == '+' | return ['oneormoreconcat', thing] | endif
+	if suffix == '#' | return ['oneormorelist', thing] | endif
+	if suffix == '°' | return ['zeroormoreconcat', thing] | endif
+	if suffix == '*' | return ['zeroormorelist', thing] | endif
 	return thing
 endf
 
@@ -156,20 +168,41 @@ fu! s:trPrefix(list)
 	return thing
 endf
 
-fu! s:trSequence(list)
+fu! s:trSequenceConc(list)
 	if len(a:list) == 1
 		return a:list[0]
 	endif
-	return ['sequence', a:list]
+	return ['sequence_concatenated', a:list]
+endf
+
+fu! s:trSequenceList(list)
+	let first_thing = a:list[0]
+	let other_things = a:list[1]
+	if empty(other_things)
+		return first_thing
+	endif
+	let trseq = [first_thing]
+	for i in range(len(other_things))
+		if i % 2 == 0
+			continue
+		endif
+		call add(trseq, other_things[i])
+	endfor
+	return ['sequence_list', trseq]
 endf
 
 fu! s:trChoice(list)
-	if empty(a:list[1])
-		return a:list[0]
+	let first_thing = a:list[0]
+	let other_things = a:list[1]
+	if empty(other_things)
+		return first_thing
 	endif
-	let trseq = [a:list[0]]
-	for seq in a:list[1]
-		call add(trseq, seq[1])
+	let trseq = [first_thing]
+	for i in range(len(other_things))
+		if i % 2 == 0
+			continue
+		endif
+		call add(trseq, other_things[i])
 	endfor
 	return ['choice', trseq]
 endf
@@ -186,7 +219,7 @@ endf
 
 fu! s:trTransform(list)
 	let funk = a:list[1]
-	if funk !~ '^[gsavlbwt]:'
+	if funk !~# '^[gsavlbwt]:'
 		let funk = 's:'.funk
 	endif
 
@@ -208,10 +241,6 @@ fu! s:trIndentGE(string)
 	return ['regexp', '\s*', ['s:indent_ge_stack']]
 endf
 
-fu! s:appendTransforms(list)
-	return a:list[0] + a:list[1]
-endf
-
 fu! s:replace_nts(rule, indentation_nts)
 	if a:rule[0] == 'nonterminal'
 		if index(a:indentation_nts, a:rule[1]) > -1
@@ -220,7 +249,7 @@ fu! s:replace_nts(rule, indentation_nts)
 		return a:rule
 	elseif a:rule[0] == 'regexp'
 		return a:rule
-	elseif a:rule[0] == 'sequence' || a:rule[0] == 'choice'
+	elseif a:rule[0] == 'sequence_list' || a:rule[0] == 'sequence_concatenated' || a:rule[0] == 'choice'
 		let result = []
 		for subitem in a:rule[1]
 			call add(result, s:replace_nts(subitem, a:indentation_nts))
@@ -255,7 +284,7 @@ function! s:nts_on_right_side(rule)
 		return [a:rule[1]]
 	elseif a:rule[0] == 'regexp' || a:rule[0] == 'nonterminal_indent'
 		return []
-	elseif a:rule[0] == 'sequence' || a:rule[0] == 'choice'
+	elseif a:rule[0] == 'sequence_list' || a:rule[0] == 'sequence_concatenated' || a:rule[0] == 'choice'
 		let result = []
 		for subitem in a:rule[1]
 			let subitem_references = s:nts_on_right_side(subitem)
@@ -279,7 +308,7 @@ function! s:substitute_nt_by_right_side(rule, nt, right_side)
 		return a:rule
 	elseif a:rule[0] == 'regexp' || a:rule[0] == 'nonterminal_indent'
 		return a:rule
-	elseif a:rule[0] == 'sequence' || a:rule[0] == 'choice'
+	elseif a:rule[0] == 'sequence_list' || a:rule[0] == 'sequence_concatenated' || a:rule[0] == 'choice'
 		let result = []
 		for subitem in a:rule[1]
 			call add(result, s:substitute_nt_by_right_side(subitem, a:nt, a:right_side))
@@ -339,38 +368,42 @@ endfunction
 " ------------------------------------------------
 "  the following defines the raw grammar for the nice grammar
 
-" peggrammar = (pegdefinition+).s:makeGrammar()
-" pegdefinition = (pegidentifier pegindentnt? pegassignment pegexpression).s:trDefinition()
-" pegexpression = (pegsequence (/\s*|\s*/ pegsequence)*).s:trChoice()
-" pegsequence = (pegprefix+).s:trSequence()
-" pegprefix = ((/\s*&\s*/ | /\s*!\s*/)? pegsuffix).s:trPrefix()
-" pegsuffix = (pegprimary (/\s*?\s*/ | /\s*\*\s*/ | /\s*+\s*/)).s:trSuffix()
-" pegprimary = (( pegregexp | pegliteral | pegindentgreaterequal | pegindentgreater | (pegidentifier !pegindentnt !pegassignment).s:trNonterminal() | (/\s*(\s*/ pegexpression /\s*)\s*/).g:takeSecond() ) pegtransform*).s:appendTransforms()
-" pegtransform = (/\./ /[a-zA-Z0-9_:]\+/ /(/ /\s*"\%(\\.\|[^"]\)*"\s*,\?\s*/ /\s*)/).s:trTransform()
-" pegidentifier = /\s*[a-zA-Z_][a-zA-Z0-9_]*\s*/.s:strip()
-" pegregexp = /\s*/\%(\\.\|[^/]\)*/\s*/.s:trRegexp()
-" pegliteral = /\s*"\%(\\.\|[^"]\)*"\s*/.s:trLiteral()
-" pegassignment = /\s*=/
-" pegindentnt = /\s*\^/
-" pegindentgreaterequal = /\s*>=/.s:trIndentGE()
-" pegindentgreater = /\s*>/.s:trIndentGT()
+" peggrammar = (pegdefinition#).s:makeGrammar()
+" pegdefinition = (pegidentifier, pegindentnt?, pegassignment, pegexpression, pegcomment?).s:trDefinition() → [identifiername, bool, thing]
+" pegexpression = (pegsequencelist, (/\s*|\s*/ , pegsequencelist)°).s:trChoice() → thing
+" pegsequencelist = (pegsequenceconc , (/\s*,/ , pegsequenceconc)°).s:trSequenceList() → thing
+" pegsequenceconc = (pegprefix#).s:trSequenceConc() → thing
+" pegprefix = ((/\s*&\s*/ | /\s*!\s*/)? , pegsuffix).s:trPrefix() → thing
+" pegsuffix = (pegprimary , (/\s*?\s*/ | /\s*\*\s*/ | /\s*+\s*/ | /\s*°\s*/ | /\s*#\s*/)?).s:trSuffix() → thing
+" pegprimary = (( pegregexp | pegliteral | pegindentgreaterequal | pegindentgreater | (pegidentifier !pegindentnt !pegassignment).s:trNonterminal() | (/\s*(\s*/ , pegexpression , /\s*)\s*/).g:takeSecond() ) ,  pegtransform*) → [thing, [[funktion, arg1, arg2, …]]]
+" pegtransform = (/\./ , /[a-zA-Z0-9_:]\+/ , /(/ , (/\s*"\%(\\.\|[^"]\)*"\s*,\?\s*/)* , /\s*)/).s:trTransform() → [funktion, arg1, arg2, …]
+" pegidentifier = /\s*[a-zA-Z_][a-zA-Z0-9_]*\s*/.s:strip() → string
+" pegregexp = /\s*/\%(\\.\|[^/]\)*/\s*/.s:trRegexp() → thing
+" pegliteral = /\s*"\%(\\.\|[^"]\)*"\s*/.s:trLiteral() → thing
+" pegassignment = /\s*=/ → string
+" pegindentnt = /\s*\^/ → string
+" pegindentgreaterequal = /\s*>=/.s:trIndentGE() → thing
+" pegindentgreater = /\s*>/.s:trIndentGT() → thing
+" pegcomment = /\s*{[^}]*}\s*/.skip() → string
 
 let s:peggi_grammar = {
-\ 'peggrammar' : ['oneormore', ['nonterminal', 'pegdefinition'], ['s:makeGrammar']],
-\ 'pegdefinition' : ['sequence', [['nonterminal', 'pegidentifier'], ['optional', ['nonterminal','pegindentnt']], ['nonterminal','pegassignment'], ['nonterminal','pegexpression']], ['s:trDefinition']],
-\ 'pegexpression' : ['sequence', [['nonterminal','pegsequence'], ['zeroormore',['sequence',[['regexp','\s*|\s*'], ['nonterminal','pegsequence']]]]], ['s:trChoice']],
-\ 'pegsequence' : ['oneormore', ['nonterminal', 'pegprefix'], ['s:trSequence']],
-\ 'pegprefix' : ['sequence', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], ['s:trPrefix']],
-\ 'pegsuffix' : ['sequence', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*']]]]], ['s:trSuffix']],
-\ 'pegprimary' : ['sequence', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['nonterminal', 'pegindentgreaterequal'], ['nonterminal', 'pegindentgreater'], ['sequence', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegindentnt']], ['not', ['nonterminal','pegassignment']]], ['s:trNonterminal']], ['sequence',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:takeSecond']]]], ['zeroormore', ['nonterminal','pegtransform']] ], ['s:appendTransforms']],
-\ 'pegtransform' : ['sequence', [['regexp', '\.'], ['regexp', '[a-zA-Z0-9_:]\+'], ['regexp', '('], ['zeroormore', ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*,\?\s*']], ['regexp', '\s*)']], ['s:trTransform']],
+\ 'peggrammar' : ['oneormorelist', ['nonterminal', 'pegdefinition'], ['s:makeGrammar']],
+\ 'pegdefinition' : ['sequence_list', [['nonterminal', 'pegidentifier'], ['optional', ['nonterminal','pegindentnt']], ['nonterminal','pegassignment'], ['nonterminal','pegexpression'], ['optional', ['nonterminal','pegcomment']]], ['s:trDefinition']],
+\ 'pegexpression' : ['sequence_list', [['nonterminal','pegsequencelist'], ['zeroormoreconcat',['sequence_list',[['regexp','\s*|\s*'], ['nonterminal','pegsequencelist']]]]], ['s:trChoice']],
+\ 'pegsequencelist' : ['sequence_list', [['nonterminal','pegsequenceconc'], ['zeroormoreconcat',['sequence_list',[['regexp','\s*,'], ['nonterminal','pegsequenceconc']]]]], ['s:trSequenceList']],
+\ 'pegsequenceconc' : ['oneormorelist', ['nonterminal', 'pegprefix'], ['s:trSequenceConc']],
+\ 'pegprefix' : ['sequence_list', [['optional',['choice',[['regexp','\s*&\s*'], ['regexp','\s*!\s*']]]], ['nonterminal','pegsuffix']], ['s:trPrefix']],
+\ 'pegsuffix' : ['sequence_list', [['nonterminal','pegprimary'], ['optional',['choice',[['regexp','\s*?\s*'],['regexp','\s*\*\s*'],['regexp','\s*+\s*'],['regexp','\s*°\s*'],['regexp','\s*#\s*']]]]], ['s:trSuffix']],
+\ 'pegprimary' : ['sequence_concatenated', [['choice',[['nonterminal','pegregexp'], ['nonterminal','pegliteral'], ['nonterminal', 'pegindentgreaterequal'], ['nonterminal', 'pegindentgreater'], ['sequence_concatenated', [['nonterminal','pegidentifier'], ['not', ['nonterminal','pegindentnt']], ['not', ['nonterminal','pegassignment']]], ['s:trNonterminal']], ['sequence_list',[['regexp','\s*(\s*'],['nonterminal','pegexpression'],['regexp','\s*)\s*']], ['s:takeSecond']]]], ['zeroormorelist', ['nonterminal','pegtransform']] ]],
+\ 'pegtransform' : ['sequence_list', [['regexp', '\.'], ['regexp', '[a-zA-Z0-9_:]\+'], ['regexp', '('], ['zeroormorelist', ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*,\?\s*']], ['regexp', '\s*)']], ['s:trTransform']],
 \ 'pegidentifier' : ['regexp', '\s*[a-zA-Z_][a-zA-Z0-9_]*\s*', ['s:strip']],
 \ 'pegregexp' : ['regexp', '\s*/\%(\\.\|[^/]\)*/\s*', ['s:trRegexp']],
 \ 'pegliteral' : ['regexp', '\s*"\%(\\.\|[^"]\)*"\s*', ['s:trLiteral']],
 \ 'pegassignment' : ['regexp', '\s*='],
 \ 'pegindentnt' : ['regexp', '\s*\^'],
 \ 'pegindentgreaterequal' : ['regexp', '\s*>=', ['s:trIndentGE']],
-\ 'pegindentgreater' : ['regexp', '\s*>', ['s:trIndentGT']]
+\ 'pegindentgreater' : ['regexp', '\s*>', ['s:trIndentGT']],
+\ 'pegcomment' : ['regexp', '\s*{[^}]*}\s*', ['s:skip']]
 \ }
 
 
@@ -425,9 +458,8 @@ fu! s:parse_regexp(thing)
 	return outcome
 endf
 
-
-"Returns: a list of whatever the subitems return or Fail (if one of them fails)
-fu! s:parse_sequence(thing)
+"Returns: a concatenated list of whatever the subitems return or Fail (if one of them fails)
+fu! s:parse_sequence_concatenated(thing)
 	if s:debug | call s:print_state(a:thing) | endif
 	let cache_key = s:pos . string(a:thing) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
@@ -441,24 +473,68 @@ fu! s:parse_sequence(thing)
 			let res = s:parse_{thing[0]}(thing)
 			if s:isfail(res)
 				let s:pos = old_pos
-				unlet result | let result = g:fail
+				unlet result
+				let result = g:fail
 				break
 			else
 				call add(result, res)
 			endif
 		endfor
-		if !s:isfail(result) && s:concat_seqs && !(len(a:thing) > 2 && a:thing[2][0] == "s:split")
-			let res_string = join(result, '')
-			unlet result
-			let result = res_string
+		if !s:isfail(result)
+			if type(result[0]) == 3 " the results are lists (at least the first element)
+				unlet! res
+				let res = []
+				for inner_list in result
+					call extend(res, inner_list)
+				endfor
+				let result = res
+			elseif type(result[0]) == 1 " the results are strings
+				let res_string = join(result, '')
+				unlet result
+				let result = res_string
+			else
+				echom "Error: expected a list of lists or a list of strings"
+				return 
+			endif
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
 		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
-	call s:print_result('sequence', outcome)
+	call s:print_result('sequence_concatenated', outcome)
 	return outcome
 endf
+
+"Returns: a list of whatever the subitems return or Fail (if one of them fails)
+fu! s:parse_sequence_list(thing)
+	if s:debug | call s:print_state(a:thing) | endif
+	let cache_key = s:pos . string(a:thing) . string(s:indent_stack)
+	let outcome = s:query_cache(cache_key)
+	if s:cache_fail(outcome)
+
+		let old_pos = s:pos
+		let result = []
+		let res = ''
+		for thing in a:thing[1]
+			unlet res  "necessary, because the type of the parse result may change
+			let res = s:parse_{thing[0]}(thing)
+			if s:isfail(res)
+				let s:pos = old_pos
+				unlet result
+				let result = g:fail
+				break
+			else
+				call add(result, res)
+			endif
+		endfor
+
+		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
+	endif
+	call s:print_result('sequence_list', outcome)
+	return outcome
+endf
+
 
 "like parse_nonterminal, but don't cache the output and push the current
 "indentation on a stack when beginning the parsing and pop it when done
@@ -547,7 +623,54 @@ fu! s:parse_optional(thing)
 endf
 
 "Returns: a (possibliy empty) list of whatever the subitem returns, as long as it matches
-fu! s:parse_zeroormore(thing)
+fu! s:parse_zeroormoreconcat(thing)
+	if s:debug | call s:print_state(a:thing) | endif
+	let cache_key = s:pos . string(a:thing) . string(s:indent_stack)
+	let outcome = s:query_cache(cache_key)
+	if s:cache_fail(outcome)
+
+		let result = []
+		while 1
+			unlet! res "necessary, because the type of the parse result may change
+			let res = s:parse_{a:thing[1][0]}(a:thing[1])
+			if s:isfail(res)
+				break
+			else
+				call add(result, res)
+			endif
+		endwhile
+
+		if !empty(result)
+			if type(result[0]) == 3 " the results are lists (at least the first element)
+				unlet! res
+				let res = []
+				for inner_list in result
+					call extend(res, inner_list)
+				endfor
+				let result = res
+			elseif type(result[0]) == 1 " the results are strings
+				let res_string = join(result, '')
+				unlet result
+				let result = res_string
+			else
+				echom "Error: expected a list of lists or a list of strings"
+				return 
+			endif
+		else
+			unlet result
+			let result = ''
+		endif
+			
+
+		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
+	endif
+	call s:print_result('zeroormoreconcat', outcome)
+	return outcome
+endf
+
+"Returns: a (possibliy empty) list of whatever the subitem returns, as long as it matches
+fu! s:parse_zeroormorelist(thing)
 	if s:debug | call s:print_state(a:thing) | endif
 	let cache_key = s:pos . string(a:thing) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
@@ -564,21 +687,16 @@ fu! s:parse_zeroormore(thing)
 				call add(result, res)
 			endif
 		endwhile
-		if s:concat_seqs && !(len(a:thing) > 2 && a:thing[2][0] == "s:split")
-			let res_string = join(result, '')
-			unlet result
-			let result = res_string
-		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
 		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
-	call s:print_result('zeroormore', outcome)
+	call s:print_result('zeroormorelist', outcome)
 	return outcome
 endf
 
 "Returns: a list of whatever the subitem returns, as long as it matches, or Fail if doesn't match
-fu! s:parse_oneormore(thing)
+fu! s:parse_oneormoreconcat(thing)
 	if s:debug | call s:print_state(a:thing) | endif
 	let cache_key = s:pos . string(a:thing) . string(s:indent_stack)
 	let outcome = s:query_cache(cache_key)
@@ -600,17 +718,56 @@ fu! s:parse_oneormore(thing)
 					call add(rest, res)
 				endif
 			endwhile
-			if s:concat_seqs && !(len(a:thing) > 2 && a:thing[2][0] == "s:split")
+			if type(first) == 3 " the results are lists (at least the first element)
+				for inner_list in rest
+					call extend(first, inner_list)
+				endfor
+				let result = first
+			elseif type(first) == 1 " the results are strings
 				let result = first . join(rest, '')
 			else
-				let result = [first] + rest
+				echom "Error: expected a list of lists or a list of strings"
+				return 
 			endif
 		endif
 
 		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
 		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
 	endif
-	call s:print_result('oneormore', outcome)
+	call s:print_result('oneormoreconcat', outcome)
+	return outcome
+endf
+
+"Returns: a list of whatever the subitem returns, as long as it matches, or Fail if doesn't match
+fu! s:parse_oneormorelist(thing)
+	if s:debug | call s:print_state(a:thing) | endif
+	let cache_key = s:pos . string(a:thing) . string(s:indent_stack)
+	let outcome = s:query_cache(cache_key)
+	if s:cache_fail(outcome)
+
+		let first = s:parse_{a:thing[1][0]}(a:thing[1])
+
+		if s:isfail(first)
+			let result = g:fail
+		else
+			let rest = []
+			let res = ''
+			while 1
+				unlet res "necessary, because the type of the parse result may change
+				let res = s:parse_{a:thing[1][0]}(a:thing[1])
+				if s:isfail(res)
+					break
+				else
+					call add(rest, res)
+				endif
+			endwhile
+			let result = [first] + rest
+		endif
+
+		unlet outcome | let outcome = s:apply_transformations(result, a:thing[2:])
+		if s:packrat_enabled | let s:cache[cache_key] = [s:pos, outcome, s:indent_stack] | endif
+	endif
+	call s:print_result('oneormorelist', outcome)
 	return outcome
 endf
 
@@ -712,7 +869,6 @@ fu! g:parse_begin(grammar, string, start)
 		let s:cache = {}
 		let s:pos = 0
 		let s:grammar = s:peggi_grammar
-		let s:concat_seqs = 0
 		let s:string = a:grammar
 		let users_grammar = s:parse_nonterminal(['nonterminal', 'peggrammar'])
 		if (type(users_grammar) == type(g:fail) && users_grammar == g:fail) || strlen(s:string) > s:pos
@@ -742,7 +898,6 @@ fu! g:parse_begin(grammar, string, start)
 	let s:cache = {}
 	let s:pos = 0
 	let s:grammar = users_grammar
-	let s:concat_seqs = 1
 	let s:string = a:string
 
 	return s:parse_nonterminal(['nonterminal', a:start])
