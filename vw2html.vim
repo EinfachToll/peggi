@@ -15,6 +15,12 @@ fu! g:breakorspace(string)
 	return '<br />'
 endf
 
+let s:current_indent = 0
+
+fu! g:saveindent(string)
+	let s:current_indent = matchstr(a:string, '^\s*')
+	return ''
+endfu
 
 function! g:checkbox(bulletandcb, type)
 	let [bullet, cb] = a:bulletandcb
@@ -39,7 +45,16 @@ endf
 
 fu! g:endpre(string)
 	let str = substitute(a:string, '\r\s*}}}\s*\r$', '', '')
-	return str . '</pre>'
+	let lines = split(str, '\r')
+	let result = []
+	for line in lines
+		if line =~ '^'.s:current_indent
+			call add(result, substitute(line, '^'.s:current_indent, '', ''))
+		else
+			call add(result, substitute(line, '^\s*', '', ''))
+		endif
+	endfor
+	return join(result, '\n').'</pre>'
 endf
 
 fu! g:startmathblock(environment)
@@ -308,7 +323,7 @@ let s:grammar = '
 			\ checkbox = "[".skip() /[ .oOX]/ /\]\s\+/.skip()
 			\ list_item_content = text (&> paragraph)? (emptyline paragraph.tag("p"))°
 			\ 
-			\ preformatted_text = &> "{{{".skip() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
+			\ preformatted_text = &> "{{{".g:saveindent() /[^\r]*/.g:startpre() /\r/.skip() /\_.\{-}\r\s*}}}\s*\r/.g:endpre()
 			\ math_block = &> "{{$".skip() /[^\r]*/.g:startmathblock() /\r/.skip() /\_.\{-}\r\s*}}\$\s*\r/.g:endmathblock()
 			\ 
 			\ deflist = (&> deflist_item+).tag("dl")
