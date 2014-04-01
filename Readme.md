@@ -19,7 +19,7 @@ sections for how to use Peggi.
 
 As an example, let's look at a script that uses Peggi for processing arithmetic
 expressions:
-```
+```viml
 let s:grammar = '
             \ Expression = ( Term , /\s*[+-]/.strip() , Expression ).g:compute()  |  Term
             \ Term = ( Factor , /\s*[*\/]/.strip() , Term ).g:compute()  |  Factor
@@ -69,7 +69,7 @@ number and there is no parse fail).
 # Grammar
 
 The grammar is specified as one (big) string. The best is to format it like this:
-```
+```viml
 let grammar = '
     \ Nonterminal1 = grammar expression ...
     \ Nonterminal2 = other expression ...
@@ -82,6 +82,7 @@ For more information about Parsing Expression Grammar, see
 [PEG](en.wikipedia.org/wiki/Parsing_expression_grammar).
 In Peggi, a grammar expression has one of the following forms:
 
+```
 .---------------+------------------------------+------------------------------.
 | Form          | Function                     | Yields                       |
 +===============+==============================+==============================+
@@ -135,6 +136,7 @@ In Peggi, a grammar expression has one of the following forms:
 +---------------+------------------------------+------------------------------+
 | (Expr)        | matches Expr                 | whatever Expr yields         |
 '---------------+------------------------------+------------------------------'
+```
 
 (Note: “Match and consume” means that the string is matched and the internal pointer
 moves on to the place behind the matched string in order to match the next tokens.
@@ -165,6 +167,7 @@ script from your script.
 
 Peggi has some functions built in:
 
+```
 .------------------------------+------------------------------.
 | Function                     | Function (I mean, function   |
 |                              | of the function)             |
@@ -198,6 +201,7 @@ Peggi has some functions built in:
 |                              | return the item at index 2   |
 |                              | (counted from zero)          |
 '------------------------------+------------------------------'
+```
 
 
 ### Indentation
@@ -216,7 +220,7 @@ stack. The expression `>=` works analogous.
 
 As an example, take a look at the following grammar definition. It parses bulleted
 lists and converts them to HTML.
-```
+```viml
 let s:grammar = '
             \ list = ((&> list_item)+).tag("ul")         { a list consists of list_items that are
             \                                                   more indented than a surrounding list;
