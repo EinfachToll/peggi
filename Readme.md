@@ -79,7 +79,7 @@ Because of the sloppy highlight of the standard Vimscript syntax file, this gets
 highlight, when displayed in Vim. Notice the space between the \ and the nonterminals.
 
 For more information about Parsing Expression Grammar, see
-[PEG](en.wikipedia.org/wiki/Parsing_expression_grammar).
+[PEG](http://en.wikipedia.org/wiki/Parsing_expression_grammar).
 In Peggi, a grammar expression has one of the following forms:
 
 ```
@@ -298,7 +298,7 @@ becomes
     blubb = "lol" blubb
 ```
 
-## Transformation function Prefix
+## Transformation function prefix
 `:call peggi#peggi#transformation_prefix("myplugin#")`
 
 Every transformation function (except for the ones built in) is prefixed with the given string.
