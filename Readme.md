@@ -145,25 +145,29 @@ of the string. So `&Expr1 &Expr2 Expr3` means that all three expressions are mat
 the same part of the string.)
 
 (Note 2: Due to Vims strange behavior concerning line endings, use `/\r/` instead of
-`/\n/` to match a line break.)
+`/\n/` to match a line break in the grammar as well as in transformation functions.)
+
+(Note 3: `Expr1 Expr2` binds more tightly than `Expr1, Expr2` which binds more tightly
+than `Expr1 | Expr2`.)
 
 ## Special Items
 
 ### Comments
-e.g. `Nonterminal = Expr1 | Expr2 Expr3   {Comment}`
+e.g. `Nonterminal = Expr1 | Expr2 Expr3   { Comment }`
 
-Comments can only appear at the end of a rule definition.
+Comments can only appear at the end of a rule definition. They are useful e.g. to make a
+note about the data type a rule yields
 
 ### Transformation functions
 e.g. `Expr.function("arg1", "arg2")` 
 
 The result of matching Expr is handed as the first argument to function(), followed by
 the given additional arguments. Additional arguments must always be enclosed in double
-quotes. Functions can be concatenated: `Expr.fu1("arg1").fu2("arg2")`.
-Unfortunately, only global functions (that means, starting with a capital, with `g:` or
-functions that sit in an autoload directory) can be used as transformation functions.
-Script-local functions (starting with `s:`) won't work, because Peggi is a different
-script from your script.
+quotes (use `\"` for an actual double quote). Functions can be concatenated:
+`Expr.fu1("arg1").fu2("arg2")`. Unfortunately, only global functions (that means,
+starting with a capital, with `g:` or functions that sit in an autoload directory) can be
+used as transformation functions. Script-local functions (starting with `s:`) won't work,
+because Peggi is a different script from your script.
 
 Peggi has some functions built in:
 
@@ -203,6 +207,7 @@ Peggi has some functions built in:
 '------------------------------+------------------------------'
 ```
 
+(Note: instead of `Expr*.fun()` write `(Expr*).fun()`. Analogous for `?`, `°`, `#`, and `+`)
 
 ### Indentation
 Normally, Parsing Expression Grammar is not powerful enough to deal with text where the
